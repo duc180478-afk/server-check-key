@@ -1,7 +1,8 @@
 FROM php:8.2-apache
 
-# Cài đặt extension PDO SQLite
-RUN docker-php-ext-install pdo_sqlite
+# Cài đặt thư viện cần thiết và extension PDO SQLite
+RUN apt-get update && apt-get install -y libsqlite3-dev \
+    && docker-php-ext-install pdo_sqlite
 
 # Copy source code
 COPY . /var/www/html/
