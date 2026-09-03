@@ -6,7 +6,7 @@ define('DB_PATH', __DIR__ . '/data/keys.db');
 
 // Mật khẩu admin panel (nên đổi thành hash bcrypt)
 // Dùng password_hash('your_password', PASSWORD_BCRYPT) để tạo hash
-define('ADMIN_PASSWORD_HASH', getenv('ADMIN_PASSWORD_HASH') ?: '$2y$10$e0MYzXyjpJS7Pd0RVvHwHe1HlC7hQhYdQ9Y2rD2mh2s2F2oP0oK6e'); // default: "admin123"
+define('ADMIN_PASSWORD_HASH', getenv('ADMIN_PASSWORD_HASH') ?: '$2a$12$aVDuDN5tWdnJ2krf.PCrYe8tRhzvYNWdN1F8eOfCAtyWyg8MFAiOC); // default: "admin123"
 
 // Cấu hình Telegram Bot
 define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8430522560:AAFfK8CT0S9cr2GOGcWfqN8asF_qkLLrqqg');
