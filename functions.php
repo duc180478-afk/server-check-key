@@ -42,6 +42,13 @@ function getKeyByKey($key) {
     return $stmt->fetch(PDO::FETCH_ASSOC);
 }
 
+function getKeyById($id) {
+    $pdo = Database::getConnection();
+    $stmt = $pdo->prepare("SELECT * FROM keys WHERE id = ?");
+    $stmt->execute([$id]);
+    return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
 function updateKey($id, $fields) {
     $pdo = Database::getConnection();
     $sets = [];
@@ -68,7 +75,7 @@ function listKeys($limit = 100) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function validateKey($key, $hwid) {
+function validateKey($key, $hwid = null) {
     $keyData = getKeyByKey($key);
     if (!$keyData) {
         return ['status' => 'error', 'message' => 'Key không tồn tại!'];
@@ -84,26 +91,11 @@ function validateKey($key, $hwid) {
         return ['status' => 'error', 'message' => 'Key đã bị vô hiệu hóa!'];
     }
 
-    // Kiểm tra hwid
-    $hwids = json_decode($keyData['hwids'], true);
-    if (!is_array($hwids)) $hwids = [];
-
-    if (!in_array($hwid, $hwids)) {
-        if (count($hwids) >= $keyData['hwid_limit']) {
-            return ['status' => 'error', 'message' => 'Đã đạt giới hạn thiết bị!'];
-        }
-        $hwids[] = $hwid;
-        updateKey($keyData['id'], [
-            'hwids' => json_encode($hwids),
-            'times_used' => $keyData['times_used'] + 1,
-            'last_used_at' => date('Y-m-d H:i:s')
-        ]);
-    } else {
-        updateKey($keyData['id'], [
-            'times_used' => $keyData['times_used'] + 1,
-            'last_used_at' => date('Y-m-d H:i:s')
-        ]);
-    }
+    // Tăng số lần sử dụng (không cần hwid)
+    updateKey($keyData['id'], [
+        'times_used' => $keyData['times_used'] + 1,
+        'last_used_at' => date('Y-m-d H:i:s')
+    ]);
 
     return ['status' => 'success', 'message' => 'Key hợp lệ!'];
 }
