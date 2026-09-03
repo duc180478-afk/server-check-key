@@ -12,5 +12,5 @@ define('ADMIN_PASSWORD_HASH', getenv('ADMIN_PASSWORD_HASH') ?: '$2y$10$e0MYzXyjp
 define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8430522560:AAFfK8CT0S9cr2GOGcWfqN8asF_qkLLrqqg');
 define('TELEGRAM_ADMIN_CHAT_ID', getenv('TELEGRAM_ADMIN_CHAT_ID') ?: '8496514219');
 
-// URL webhook của bot (sẽ được thiết lập tự động nếu cần)
-define('BOT_WEBHOOK_URL', getenv('BOT_WEBHOOK_URL') ?: 'https://your-app.onrender.com/bot.php');
+// URL webhook của bot
+define('BOT_WEBHOOK_URL', getenv('BOT_WEBHOOK_URL') ?: 'https://server-check-key.onrender.com/bot.php');
