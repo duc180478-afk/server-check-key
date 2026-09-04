@@ -7,12 +7,12 @@ require_once 'functions.php';
 header('Content-Type: application/json');
 
 $key = isset($_GET['key']) ? $_GET['key'] : '';
-$hwid = isset($_GET['hwid']) ? $_GET['hwid'] : null; // không bắt buộc
+$hwid = isset($_GET['hwid']) ? $_GET['hwid'] : '';
 
-if (empty($key)) {
+if (empty($key) || empty($hwid)) {
     echo json_encode([
         'status' => 'error',
-        'message' => 'Thiếu Key!'
+        'message' => 'Thiếu Key hoặc HWID!'
     ]);
     exit;
 }
