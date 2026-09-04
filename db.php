@@ -8,7 +8,7 @@ class Database {
         if (self::$pdo === null) {
             $dbUrl = getenv('DATABASE_URL');
             if ($dbUrl) {
-                // Sử dụng PostgreSQL nếu có biến môi trường DATABASE_URL
+                // Sử dụng PostgreSQL
                 $parts = parse_url($dbUrl);
                 $host = $parts['host'];
                 $port = $parts['port'] ?? 5432;
@@ -18,7 +18,7 @@ class Database {
                 $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
                 self::$pdo = new PDO($dsn, $user, $password);
             } else {
-                // Fallback SQLite khi chạy local (không có DATABASE_URL)
+                // Fallback SQLite khi chạy local
                 if (!is_dir(dirname(DB_PATH))) {
                     mkdir(dirname(DB_PATH), 0755, true);
                 }
