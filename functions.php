@@ -75,7 +75,7 @@ function listKeys($limit = 100) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function validateKey($key, $hwid) {
+function validateKey($key, $hwid = null) {
     $keyData = getKeyByKey($key);
     if (!$keyData) {
         return ['status' => 'error', 'message' => 'Key không tồn tại!'];
@@ -91,31 +91,11 @@ function validateKey($key, $hwid) {
         return ['status' => 'error', 'message' => 'Key đã bị vô hiệu hóa!'];
     }
 
-    // Kiểm tra giới hạn thiết bị (HWID)
-    $hwidLimit = intval($keyData['hwid_limit']);
-    $hwids = json_decode($keyData['hwids'], true);
-    if (!is_array($hwids)) $hwids = [];
-
-    if (!in_array($hwid, $hwids)) {
-        // HWID chưa được đăng ký
-        // Nếu hwid_limit = 0 thì không giới hạn
-        if ($hwidLimit > 0 && count($hwids) >= $hwidLimit) {
-            return ['status' => 'error', 'message' => 'Đã đạt giới hạn thiết bị!'];
-        }
-        // Thêm HWID mới vào danh sách
-        $hwids[] = $hwid;
-        updateKey($keyData['id'], [
-            'hwids' => json_encode($hwids),
-            'times_used' => $keyData['times_used'] + 1,
-            'last_used_at' => date('Y-m-d H:i:s')
-        ]);
-    } else {
-        // HWID đã tồn tại, chỉ cập nhật số lần sử dụng
-        updateKey($keyData['id'], [
-            'times_used' => $keyData['times_used'] + 1,
-            'last_used_at' => date('Y-m-d H:i:s')
-        ]);
-    }
+    // Cập nhật số lần sử dụng (không giới hạn thiết bị)
+    updateKey($keyData['id'], [
+        'times_used' => $keyData['times_used'] + 1,
+        'last_used_at' => date('Y-m-d H:i:s')
+    ]);
 
     return ['status' => 'success', 'message' => 'Key hợp lệ!'];
 }
