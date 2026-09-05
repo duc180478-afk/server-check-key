@@ -100,7 +100,16 @@ function validateKey($key, $hwid = null) {
     return ['status' => 'success', 'message' => 'Key hợp lệ!'];
 }
 
-// Hàm tính thời gian còn lại (trả về chuỗi đẹp)
+// Hàm xóa tất cả key đã hết hạn
+function cleanupExpiredKeys() {
+    $pdo = Database::getConnection();
+    $now = date('Y-m-d H:i:s');
+    $stmt = $pdo->prepare("DELETE FROM keys WHERE expires_at IS NOT NULL AND expires_at < ?");
+    $stmt->execute([$now]);
+    return $stmt->rowCount();
+}
+
+// Hàm tính thời gian còn lại
 function getTimeRemaining($expiresAt) {
     if (empty($expiresAt)) {
         return 'Vĩnh viễn';
@@ -123,7 +132,6 @@ function getTimeRemaining($expiresAt) {
     }
 }
 
-// Hàm set trạng thái bot
 function setBotState($chatId, $state, $data = null) {
     $pdo = Database::getConnection();
     $stmt = $pdo->prepare("INSERT INTO bot_states (chat_id, state, data) VALUES (?, ?, ?) 
@@ -131,7 +139,6 @@ function setBotState($chatId, $state, $data = null) {
     $stmt->execute([$chatId, $state, $data]);
 }
 
-// Hàm get trạng thái bot
 function getBotState($chatId) {
     $pdo = Database::getConnection();
     $stmt = $pdo->prepare("SELECT state, data FROM bot_states WHERE chat_id = ?");
@@ -140,7 +147,6 @@ function getBotState($chatId) {
     return $result ?: null;
 }
 
-// Hàm xóa trạng thái bot
 function clearBotState($chatId) {
     $pdo = Database::getConnection();
     $stmt = $pdo->prepare("DELETE FROM bot_states WHERE chat_id = ?");
