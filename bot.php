@@ -4,80 +4,147 @@
 require_once 'config.php';
 require_once 'functions.php';
 
+// Hàm gửi tin nhắn thường (giữ nguyên)
+function sendTelegramMessageLocal($chatId, $text, $keyboard = null) {
+    if (!defined('TELEGRAM_BOT_TOKEN') || TELEGRAM_BOT_TOKEN === 'YOUR_BOT_TOKEN') {
+        return false;
+    }
+    $url = "https://api.telegram.org/bot" . TELEGRAM_BOT_TOKEN . "/sendMessage";
+    $data = [
+        'chat_id' => $chatId,
+        'text' => $text,
+        'parse_mode' => 'HTML'
+    ];
+    if ($keyboard !== null) {
+        $data['reply_markup'] = json_encode($keyboard);
+    }
+    $options = [
+        'http' => [
+            'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+            'method'  => 'POST',
+            'content' => http_build_query($data)
+        ]
+    ];
+    $context  = stream_context_create($options);
+    return file_get_contents($url, false, $context);
+}
+
+// Hàm sửa tin nhắn
+function editTelegramMessageLocal($chatId, $messageId, $text, $keyboard = null) {
+    if (!defined('TELEGRAM_BOT_TOKEN') || TELEGRAM_BOT_TOKEN === 'YOUR_BOT_TOKEN') {
+        return false;
+    }
+    $url = "https://api.telegram.org/bot" . TELEGRAM_BOT_TOKEN . "/editMessageText";
+    $data = [
+        'chat_id' => $chatId,
+        'message_id' => $messageId,
+        'text' => $text,
+        'parse_mode' => 'HTML'
+    ];
+    if ($keyboard !== null) {
+        $data['reply_markup'] = json_encode($keyboard);
+    }
+    $options = [
+        'http' => [
+            'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+            'method'  => 'POST',
+            'content' => http_build_query($data)
+        ]
+    ];
+    $context  = stream_context_create($options);
+    return file_get_contents($url, false, $context);
+}
+
+// Hàm gửi hoặc sửa tin nhắn (ưu tiên sửa nếu có messageId)
+function sendOrEditMessage($chatId, $text, $keyboard = null, $messageId = null) {
+    if ($messageId !== null) {
+        $result = editTelegramMessageLocal($chatId, $messageId, $text, $keyboard);
+        if ($result !== false) {
+            return true;
+        }
+    }
+    return sendTelegramMessageLocal($chatId, $text, $keyboard);
+}
+
+// ===== XỬ LÝ CALLBACK QUERY =====
 $content = file_get_contents('php://input');
 $update = json_decode($content, true);
 
-// Xử lý callback query (nút bấm)
 if (isset($update['callback_query'])) {
     $callback = $update['callback_query'];
     $chatId = $callback['message']['chat']['id'];
+    $messageId = $callback['message']['message_id'];
     $data = $callback['data'];
 
     // Kiểm tra admin
     if (!in_array($chatId, TELEGRAM_ADMIN_CHAT_IDS)) {
-        sendTelegramMessage($chatId, "🚫 Bạn không có quyền sử dụng bot này.");
+        sendOrEditMessage($chatId, "🚫 Bạn không có quyền sử dụng bot này.", null, $messageId);
         exit;
     }
 
     // Dọn key hết hạn trước khi thao tác
     cleanupExpiredKeys();
 
+    // Luôn xóa trạng thái chờ khi nhận callback
+    clearBotState($chatId);
+
     switch ($data) {
         case 'menu':
-            sendMainMenu($chatId);
+            sendMainMenu($chatId, $messageId);
             break;
 
         case 'genkey':
             setBotState($chatId, 'awaiting_genkey');
-            sendTelegramMessage($chatId, "🔑 <b>Tạo key mới</b>\n\nVui lòng nhập theo cú pháp:\n<code>&lt;prefix&gt; &lt;số ngày&gt; &lt;số lượng&gt;</code>\n\nVí dụ: <code>VIP 30 5</code> (tạo 5 key VIP hết hạn 30 ngày)");
+            sendOrEditMessage($chatId, "🔑 <b>Tạo key mới</b>\n\nVui lòng nhập theo cú pháp:\n<code>&lt;prefix&gt; &lt;số ngày&gt; &lt;số lượng&gt;</code>\n\nVí dụ: <code>VIP 30 5</code> (tạo 5 key VIP hết hạn 30 ngày)", null, $messageId);
             break;
 
         case 'keys':
-            showKeysList($chatId);
+            showKeysList($chatId, $messageId);
             break;
 
         case 'check':
             setBotState($chatId, 'awaiting_check');
-            sendTelegramMessage($chatId, "🔍 <b>Kiểm tra key</b>\n\nVui lòng nhập key cần kiểm tra:");
+            sendOrEditMessage($chatId, "🔍 <b>Kiểm tra key</b>\n\nVui lòng nhập key cần kiểm tra:", null, $messageId);
             break;
 
         case 'delete':
-            showDeleteMenu($chatId);
+            showDeleteMenu($chatId, $messageId);
             break;
 
         case 'extend':
-            showExtendMenu($chatId);
+            showExtendMenu($chatId, $messageId);
             break;
 
         default:
+            // Xử lý callback delete_<id> hoặc extend_<id>
             if (strpos($data, 'delete_') === 0) {
                 $id = intval(substr($data, 7));
                 $keyData = getKeyById($id);
                 if ($keyData) {
                     deleteKey($id);
-                    sendTelegramMessage($chatId, "✅ Đã xóa key: <code>{$keyData['key']}</code>");
+                    sendOrEditMessage($chatId, "✅ Đã xóa key: <code>{$keyData['key']}</code>", null, $messageId);
                 } else {
-                    sendTelegramMessage($chatId, "❌ Key không tồn tại.");
+                    sendOrEditMessage($chatId, "❌ Key không tồn tại.", null, $messageId);
                 }
-                sendMainMenu($chatId);
+                sendMainMenu($chatId, $messageId);
             } elseif (strpos($data, 'extend_') === 0) {
                 $id = intval(substr($data, 7));
                 $keyData = getKeyById($id);
                 if ($keyData) {
                     setBotState($chatId, "awaiting_extend_$id");
-                    sendTelegramMessage($chatId, "⏳ <b>Gia hạn key</b>\n\nKey: <code>{$keyData['key']}</code>\n\nVui lòng nhập số ngày muốn gia hạn:");
+                    sendOrEditMessage($chatId, "⏳ <b>Gia hạn key</b>\n\nKey: <code>{$keyData['key']}</code>\n\nVui lòng nhập số ngày muốn gia hạn:", null, $messageId);
                 } else {
-                    sendTelegramMessage($chatId, "❌ Key không tồn tại.");
+                    sendOrEditMessage($chatId, "❌ Key không tồn tại.", null, $messageId);
                 }
             } else {
-                sendTelegramMessage($chatId, "❌ Lệnh không hợp lệ.");
+                sendOrEditMessage($chatId, "❌ Lệnh không hợp lệ.", null, $messageId);
             }
             break;
     }
     exit;
 }
 
-// Xử lý tin nhắn thường
+// ===== XỬ LÝ TIN NHẮN THƯỜNG =====
 if (!isset($update['message'])) {
     exit;
 }
@@ -88,14 +155,14 @@ $text = trim($message['text'] ?? '');
 
 // Kiểm tra admin
 if (!in_array($chatId, TELEGRAM_ADMIN_CHAT_IDS)) {
-    sendTelegramMessage($chatId, "🚫 Bạn không có quyền sử dụng bot này.");
+    sendTelegramMessageLocal($chatId, "🚫 Bạn không có quyền sử dụng bot này.");
     exit;
 }
 
 // Dọn key hết hạn trước khi xử lý
 cleanupExpiredKeys();
 
-// Kiểm tra nếu có trạng thái chờ
+// Nếu có trạng thái chờ, xử lý trước
 $state = getBotState($chatId);
 if ($state) {
     $stateName = $state['state'];
@@ -106,14 +173,14 @@ if ($state) {
             // Parse: prefix days count
             $parts = explode(' ', $text);
             if (count($parts) < 3) {
-                sendTelegramMessage($chatId, "⚠️ Cú pháp không đúng. Vui lòng nhập: <code>&lt;prefix&gt; &lt;số ngày&gt; &lt;số lượng&gt;</code>");
+                sendTelegramMessageLocal($chatId, "⚠️ Cú pháp không đúng. Vui lòng nhập: <code>&lt;prefix&gt; &lt;số ngày&gt; &lt;số lượng&gt;</code>");
                 break;
             }
             $prefix = $parts[0];
             $days = intval($parts[1]);
             $count = intval($parts[2]);
             if ($count <= 0) {
-                sendTelegramMessage($chatId, "⚠️ Số lượng phải lớn hơn 0.");
+                sendTelegramMessageLocal($chatId, "⚠️ Số lượng phải lớn hơn 0.");
                 break;
             }
             $keys = createKeyBatch($prefix, $count, $days);
@@ -123,14 +190,14 @@ if ($state) {
                 $msg .= "<code>$k</code>\n";
             }
             $msg .= "\nHết hạn: " . ($days > 0 ? date('Y-m-d H:i:s', time() + $days * 86400) : 'Vĩnh viễn');
-            sendTelegramMessage($chatId, $msg);
+            sendTelegramMessageLocal($chatId, $msg);
             sendMainMenu($chatId);
             break;
 
         case 'awaiting_check':
             $keyData = getKeyByKey($text);
             if (!$keyData) {
-                sendTelegramMessage($chatId, "❌ Key không tồn tại.");
+                sendTelegramMessageLocal($chatId, "❌ Key không tồn tại.");
             } else {
                 $msg = "🔑 <b>Thông tin key:</b>\n";
                 $msg .= "<code>{$keyData['key']}</code>\n";
@@ -140,7 +207,7 @@ if ($state) {
                 $msg .= "├─ Giới hạn thiết bị: {$keyData['hwid_limit']}\n";
                 $msg .= "├─ Đã dùng: {$keyData['times_used']} lần\n";
                 $msg .= "└─ HWIDs đã dùng: <code>{$keyData['hwids']}</code>\n";
-                sendTelegramMessage($chatId, $msg);
+                sendTelegramMessageLocal($chatId, $msg);
             }
             clearBotState($chatId);
             sendMainMenu($chatId);
@@ -154,15 +221,15 @@ if ($state) {
                 if ($keyData && $days > 0) {
                     $newExpire = date('Y-m-d H:i:s', time() + $days * 86400);
                     updateKey($id, ['expires_at' => $newExpire, 'status' => 'active']);
-                    sendTelegramMessage($chatId, "✅ Đã gia hạn key <code>{$keyData['key']}</code> thêm <b>$days</b> ngày.\nHết hạn mới: $newExpire");
+                    sendTelegramMessageLocal($chatId, "✅ Đã gia hạn key <code>{$keyData['key']}</code> thêm <b>$days</b> ngày.\nHết hạn mới: $newExpire");
                 } else {
-                    sendTelegramMessage($chatId, "❌ Số ngày không hợp lệ hoặc key không tồn tại.");
+                    sendTelegramMessageLocal($chatId, "❌ Số ngày không hợp lệ hoặc key không tồn tại.");
                 }
                 clearBotState($chatId);
                 sendMainMenu($chatId);
             } else {
                 clearBotState($chatId);
-                sendTelegramMessage($chatId, "❌ Trạng thái không hợp lệ, đã hủy.");
+                sendTelegramMessageLocal($chatId, "❌ Trạng thái không hợp lệ, đã hủy.");
                 sendMainMenu($chatId);
             }
             break;
@@ -170,15 +237,18 @@ if ($state) {
     exit;
 }
 
-// Xử lý các lệnh text cũ (tương thích)
+// Xử lý các lệnh text
 if (strpos($text, '/start') === 0 || strpos($text, '/help') === 0 || strpos($text, '/menu') === 0) {
+    clearBotState($chatId);
     sendMainMenu($chatId);
 } elseif (strpos($text, '/myid') === 0) {
-    sendTelegramMessage($chatId, "🆔 Chat ID của bạn: <code>$chatId</code>");
+    clearBotState($chatId);
+    sendTelegramMessageLocal($chatId, "🆔 Chat ID của bạn: <code>$chatId</code>");
 } elseif (strpos($text, '/genkey') === 0) {
+    clearBotState($chatId);
     $parts = explode(' ', $text);
     if (count($parts) < 4) {
-        sendTelegramMessage($chatId, "⚠️ Cú pháp: <code>/genkey &lt;prefix&gt; &lt;số ngày&gt; &lt;số lượng&gt;</code>");
+        sendTelegramMessageLocal($chatId, "⚠️ Cú pháp: <code>/genkey &lt;prefix&gt; &lt;số ngày&gt; &lt;số lượng&gt;</code>");
         exit;
     }
     $prefix = $parts[1];
@@ -189,18 +259,20 @@ if (strpos($text, '/start') === 0 || strpos($text, '/help') === 0 || strpos($tex
     foreach ($keys as $k) {
         $msg .= "<code>$k</code>\n";
     }
-    sendTelegramMessage($chatId, $msg);
+    sendTelegramMessageLocal($chatId, $msg);
 } elseif (strpos($text, '/keys') === 0) {
+    clearBotState($chatId);
     showKeysList($chatId);
 } elseif (strpos($text, '/check') === 0) {
+    clearBotState($chatId);
     $key = trim(substr($text, 7));
     if (empty($key)) {
-        sendTelegramMessage($chatId, "⚠️ Cú pháp: <code>/check &lt;key&gt;</code>");
+        sendTelegramMessageLocal($chatId, "⚠️ Cú pháp: <code>/check &lt;key&gt;</code>");
         exit;
     }
     $keyData = getKeyByKey($key);
     if (!$keyData) {
-        sendTelegramMessage($chatId, "❌ Key không tồn tại.");
+        sendTelegramMessageLocal($chatId, "❌ Key không tồn tại.");
     } else {
         $msg = "🔑 <b>Thông tin key:</b>\n";
         $msg .= "<code>{$keyData['key']}</code>\n";
@@ -210,18 +282,21 @@ if (strpos($text, '/start') === 0 || strpos($text, '/help') === 0 || strpos($tex
         $msg .= "├─ Giới hạn thiết bị: {$keyData['hwid_limit']}\n";
         $msg .= "├─ Đã dùng: {$keyData['times_used']} lần\n";
         $msg .= "└─ HWIDs đã dùng: <code>{$keyData['hwids']}</code>\n";
-        sendTelegramMessage($chatId, $msg);
+        sendTelegramMessageLocal($chatId, $msg);
     }
 } elseif (strpos($text, '/delete') === 0) {
+    clearBotState($chatId);
     showDeleteMenu($chatId);
 } elseif (strpos($text, '/extend') === 0) {
+    clearBotState($chatId);
     showExtendMenu($chatId);
 } else {
-    sendTelegramMessage($chatId, "❌ Lệnh không hợp lệ. Gõ <code>/start</code> để xem menu.");
+    sendTelegramMessageLocal($chatId, "❌ Lệnh không hợp lệ. Gõ <code>/start</code> để xem menu.");
 }
 
-// Hàm gửi menu chính với nút bấm
-function sendMainMenu($chatId) {
+// ===== CÁC HÀM HIỂN THỊ =====
+
+function sendMainMenu($chatId, $messageId = null) {
     $keyboard = [
         'inline_keyboard' => [
             [
@@ -238,15 +313,14 @@ function sendMainMenu($chatId) {
         ]
     ];
     $msg = "🤖 <b>Menu chính</b>\n\nChọn chức năng bên dưới:";
-    sendTelegramMessage($chatId, $msg, $keyboard);
+    sendOrEditMessage($chatId, $msg, $keyboard, $messageId);
 }
 
-// Hàm hiển thị danh sách key
-function showKeysList($chatId) {
-    cleanupExpiredKeys(); // dọn key hết hạn trước khi hiển thị
+function showKeysList($chatId, $messageId = null) {
+    cleanupExpiredKeys();
     $keys = listKeys(20);
     if (empty($keys)) {
-        sendTelegramMessage($chatId, "📭 <b>Chưa có key nào.</b>");
+        sendOrEditMessage($chatId, "📭 <b>Chưa có key nào.</b>", null, $messageId);
         return;
     }
     $msg = "📋 <b>Danh sách key gần nhất:</b>\n\n";
@@ -258,15 +332,14 @@ function showKeysList($chatId) {
         $msg .= "├─ Thời gian còn lại: " . getTimeRemaining($k['expires_at']) . "\n";
         $msg .= "└─ Trạng thái: $statusIcon {$k['status']}\n\n";
     }
-    sendTelegramMessage($chatId, $msg);
+    sendOrEditMessage($chatId, $msg, null, $messageId);
 }
 
-// Hàm hiển thị menu xóa key
-function showDeleteMenu($chatId) {
+function showDeleteMenu($chatId, $messageId = null) {
     cleanupExpiredKeys();
     $keys = listKeys(20);
     if (empty($keys)) {
-        sendTelegramMessage($chatId, "📭 <b>Chưa có key nào để xóa.</b>");
+        sendOrEditMessage($chatId, "📭 <b>Chưa có key nào để xóa.</b>", null, $messageId);
         return;
     }
     $msg = "🗑️ <b>Chọn key cần xóa:</b>\n\n";
@@ -290,15 +363,14 @@ function showDeleteMenu($chatId) {
         $buttons[] = $row;
     }
     $keyboard = ['inline_keyboard' => $buttons];
-    sendTelegramMessage($chatId, $msg, $keyboard);
+    sendOrEditMessage($chatId, $msg, $keyboard, $messageId);
 }
 
-// Hàm hiển thị menu gia hạn key
-function showExtendMenu($chatId) {
+function showExtendMenu($chatId, $messageId = null) {
     cleanupExpiredKeys();
     $keys = listKeys(20);
     if (empty($keys)) {
-        sendTelegramMessage($chatId, "📭 <b>Chưa có key nào để gia hạn.</b>");
+        sendOrEditMessage($chatId, "📭 <b>Chưa có key nào để gia hạn.</b>", null, $messageId);
         return;
     }
     $msg = "⏳ <b>Chọn key cần gia hạn:</b>\n\n";
@@ -322,5 +394,5 @@ function showExtendMenu($chatId) {
         $buttons[] = $row;
     }
     $keyboard = ['inline_keyboard' => $buttons];
-    sendTelegramMessage($chatId, $msg, $keyboard);
+    sendOrEditMessage($chatId, $msg, $keyboard, $messageId);
 }
