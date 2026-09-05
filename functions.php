@@ -100,12 +100,21 @@ function validateKey($key, $hwid = null) {
     return ['status' => 'success', 'message' => 'Key hợp lệ!'];
 }
 
-// Hàm xóa tất cả key đã hết hạn
+// Hàm xóa các key hết hạn, nhưng giữ lại các key có prefix vip (không phân biệt hoa thường)
 function cleanupExpiredKeys() {
     $pdo = Database::getConnection();
     $now = date('Y-m-d H:i:s');
-    $stmt = $pdo->prepare("DELETE FROM keys WHERE expires_at IS NOT NULL AND expires_at < ?");
+
+    // Cập nhật trạng thái expired cho tất cả key hết hạn
+    $pdo->exec("UPDATE keys SET status = 'expired' 
+                WHERE expires_at IS NOT NULL AND expires_at < '$now' AND status != 'expired'");
+
+    // Xóa các key hết hạn, ngoại trừ key có prefix là 'vip'
+    $stmt = $pdo->prepare("DELETE FROM keys 
+                           WHERE expires_at IS NOT NULL AND expires_at < ? 
+                           AND LOWER(COALESCE(prefix, '')) != 'vip'");
     $stmt->execute([$now]);
+
     return $stmt->rowCount();
 }
 
