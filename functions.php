@@ -100,7 +100,54 @@ function validateKey($key, $hwid = null) {
     return ['status' => 'success', 'message' => 'Key hợp lệ!'];
 }
 
-function sendTelegramMessage($chatId, $text) {
+// Hàm tính thời gian còn lại (trả về chuỗi đẹp)
+function getTimeRemaining($expiresAt) {
+    if (empty($expiresAt)) {
+        return 'Vĩnh viễn';
+    }
+    $expireTime = strtotime($expiresAt);
+    $now = time();
+    if ($expireTime <= $now) {
+        return 'Đã hết hạn';
+    }
+    $diff = $expireTime - $now;
+    $days = floor($diff / 86400);
+    $hours = floor(($diff % 86400) / 3600);
+    $minutes = floor(($diff % 3600) / 60);
+    if ($days > 0) {
+        return "Còn $days ngày $hours giờ";
+    } elseif ($hours > 0) {
+        return "Còn $hours giờ $minutes phút";
+    } else {
+        return "Còn $minutes phút";
+    }
+}
+
+// Hàm set trạng thái bot
+function setBotState($chatId, $state, $data = null) {
+    $pdo = Database::getConnection();
+    $stmt = $pdo->prepare("INSERT INTO bot_states (chat_id, state, data) VALUES (?, ?, ?) 
+                           ON CONFLICT (chat_id) DO UPDATE SET state = EXCLUDED.state, data = EXCLUDED.data");
+    $stmt->execute([$chatId, $state, $data]);
+}
+
+// Hàm get trạng thái bot
+function getBotState($chatId) {
+    $pdo = Database::getConnection();
+    $stmt = $pdo->prepare("SELECT state, data FROM bot_states WHERE chat_id = ?");
+    $stmt->execute([$chatId]);
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $result ?: null;
+}
+
+// Hàm xóa trạng thái bot
+function clearBotState($chatId) {
+    $pdo = Database::getConnection();
+    $stmt = $pdo->prepare("DELETE FROM bot_states WHERE chat_id = ?");
+    $stmt->execute([$chatId]);
+}
+
+function sendTelegramMessage($chatId, $text, $keyboard = null) {
     if (!defined('TELEGRAM_BOT_TOKEN') || TELEGRAM_BOT_TOKEN === 'YOUR_BOT_TOKEN') {
         return false;
     }
@@ -110,6 +157,9 @@ function sendTelegramMessage($chatId, $text) {
         'text' => $text,
         'parse_mode' => 'HTML'
     ];
+    if ($keyboard !== null) {
+        $data['reply_markup'] = json_encode($keyboard);
+    }
     $options = [
         'http' => [
             'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
