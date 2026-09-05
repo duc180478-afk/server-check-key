@@ -47,6 +47,11 @@ class Database {
                 last_used_at TEXT,
                 note TEXT
             )");
+            $pdo->exec("CREATE TABLE IF NOT EXISTS bot_states (
+                chat_id TEXT PRIMARY KEY,
+                state TEXT,
+                data TEXT
+            )");
         } else {
             $pdo->exec("CREATE TABLE IF NOT EXISTS keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +65,11 @@ class Database {
                 times_used INTEGER DEFAULT 0,
                 last_used_at TEXT,
                 note TEXT
+            )");
+            $pdo->exec("CREATE TABLE IF NOT EXISTS bot_states (
+                chat_id TEXT PRIMARY KEY,
+                state TEXT,
+                data TEXT
             )");
         }
     }
