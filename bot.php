@@ -4,12 +4,70 @@
 require_once 'config.php';
 require_once 'functions.php';
 
-// ... (các hàm sendTelegramMessageLocal, editTelegramMessageLocal, sendOrEditMessage giữ nguyên)
+// ===== CÁC HÀM GỬI TIN NHẮN =====
+function sendTelegramMessageLocal($chatId, $text, $keyboard = null) {
+    if (!defined('TELEGRAM_BOT_TOKEN') || TELEGRAM_BOT_TOKEN === 'YOUR_BOT_TOKEN') {
+        return false;
+    }
+    $url = "https://api.telegram.org/bot" . TELEGRAM_BOT_TOKEN . "/sendMessage";
+    $data = [
+        'chat_id' => $chatId,
+        'text' => $text,
+        'parse_mode' => 'HTML'
+    ];
+    if ($keyboard !== null) {
+        $data['reply_markup'] = json_encode($keyboard);
+    }
+    $options = [
+        'http' => [
+            'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+            'method'  => 'POST',
+            'content' => http_build_query($data)
+        ]
+    ];
+    $context  = stream_context_create($options);
+    return file_get_contents($url, false, $context);
+}
 
+function editTelegramMessageLocal($chatId, $messageId, $text, $keyboard = null) {
+    if (!defined('TELEGRAM_BOT_TOKEN') || TELEGRAM_BOT_TOKEN === 'YOUR_BOT_TOKEN') {
+        return false;
+    }
+    $url = "https://api.telegram.org/bot" . TELEGRAM_BOT_TOKEN . "/editMessageText";
+    $data = [
+        'chat_id' => $chatId,
+        'message_id' => $messageId,
+        'text' => $text,
+        'parse_mode' => 'HTML'
+    ];
+    if ($keyboard !== null) {
+        $data['reply_markup'] = json_encode($keyboard);
+    }
+    $options = [
+        'http' => [
+            'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+            'method'  => 'POST',
+            'content' => http_build_query($data)
+        ]
+    ];
+    $context  = stream_context_create($options);
+    return file_get_contents($url, false, $context);
+}
+
+function sendOrEditMessage($chatId, $text, $keyboard = null, $messageId = null) {
+    if ($messageId !== null) {
+        $result = editTelegramMessageLocal($chatId, $messageId, $text, $keyboard);
+        if ($result !== false) {
+            return true;
+        }
+    }
+    return sendTelegramMessageLocal($chatId, $text, $keyboard);
+}
+
+// ===== XỬ LÝ CALLBACK QUERY =====
 $content = file_get_contents('php://input');
 $update = json_decode($content, true);
 
-// ===== XỬ LÝ CALLBACK QUERY =====
 if (isset($update['callback_query'])) {
     $callback = $update['callback_query'];
     $chatId = $callback['message']['chat']['id'];
