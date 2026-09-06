@@ -1,0 +1,10 @@
+# .htaccess — cho phép truy cập trang khong can .php
+RewriteEngine On
+
+# /getkey  ->  getkey.php
+# /claim   ->  claim.php
+# /admin/login  ->  admin/login.php
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^(.+)$ $1.php [L]
