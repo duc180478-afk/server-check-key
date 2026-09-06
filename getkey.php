@@ -11,12 +11,8 @@ require_once __DIR__ . '/keygen_functions.php';
 * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI', Arial, sans-serif; }
 body { background:#eef0f3; min-height:100vh; }
 .navbar { background:#1a8cff; height:58px; display:flex; align-items:center; justify-content:flex-end; padding:0 18px; position:relative; }
-.hamburger { background:transparent; border:1px solid rgba(255,255,255,.5); border-radius:6px; width:44px; height:40px; cursor:pointer; display:flex; flex-direction:column; justify-content:center; gap:6px; align-items:center; }
+.hamburger { background:transparent; border:1px solid rgba(255,255,255,.5); border-radius:6px; width:44px; height:40px; cursor:pointer; display:flex; flex-direction:column; justify-content:center; gap:6px; align-items:center; text-decoration:none; }
 .hamburger span { display:block; width:24px; height:2.5px; background:#fff; border-radius:2px; }
-.nav-menu { display:none; position:absolute; top:62px; right:14px; background:#fff; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.15); overflow:hidden; z-index:99; min-width:180px; }
-.nav-menu.open { display:block; }
-.nav-menu a { display:block; padding:13px 18px; color:#333; text-decoration:none; font-size:15px; }
-.nav-menu a:hover { background:#f0f6ff; }
 .container { max-width:660px; margin:26px auto; padding:0 16px; }
 .welcome-box { background:#e4e6eb; border-radius:10px; padding:18px 22px; display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; }
 .welcome-box h2 { color:#3a3f47; font-size:24px; font-weight:600; }
@@ -48,10 +44,9 @@ body { background:#eef0f3; min-height:100vh; }
 <body>
 
 <nav class="navbar">
-    <button class="hamburger" onclick="toggleMenu()" aria-label="Menu"><span></span><span></span><span></span></button>
-    <div class="nav-menu" id="navMenu">
-        <a href="getkey.php">🔑 Lấy Key</a>
-    </div>
+    <a class="hamburger" href="admin/index.php" aria-label="Admin Panel" title="Admin Panel">
+        <span></span><span></span><span></span>
+    </a>
 </nav>
 
 <div class="container">
@@ -129,10 +124,6 @@ form.addEventListener('submit', async (e) => {
     btn.disabled = false;
     btn.innerHTML = btnOriginal;
 });
-
-function toggleMenu() {
-    document.getElementById('navMenu').classList.toggle('open');
-}
 </script>
 </body>
 </html>
