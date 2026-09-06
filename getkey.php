@@ -50,8 +50,8 @@ body { background:#eef0f3; min-height:100vh; }
 <nav class="navbar">
     <button class="hamburger" onclick="toggleMenu()" aria-label="Menu"><span></span><span></span><span></span></button>
     <div class="nav-menu" id="navMenu">
-        <a href="getkey.php">🔑 Lấy Key</a>
-        <a href="admin/index.php">🛠️ Admin Panel</a>
+        <a href="getkey">🔑 Lấy Key</a>
+        <a href="admin/index">🛠️ Admin Panel</a>
     </div>
 </nav>
 
