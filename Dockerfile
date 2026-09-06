@@ -4,6 +4,10 @@ FROM php:8.2-apache
 RUN apt-get update && apt-get install -y libsqlite3-dev libpq-dev \
     && docker-php-ext-install pdo_sqlite pdo_pgsql
 
+# Bật mod_rewrite + cho phép Apache đọc file .htaccess
+RUN a2enmod rewrite \
+    && sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
+
 # Copy source code
 COPY . /var/www/html/
 
