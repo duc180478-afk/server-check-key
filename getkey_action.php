@@ -1,9 +1,10 @@
 <?php
-// getkey_action.php - Kiểm tra lượt + trả về link vượt (gọi bằng AJAX từ getkey.php)
+// getkey_action.php - Kiểm tra lượt + cấp vé lấy key (gọi bằng AJAX từ getkey.php)
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/keygen_functions.php';
 
 header('Content-Type: application/json');
+session_start();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -33,8 +34,12 @@ if ($used >= KEYGEN_MAX_PER_HOUR) {
     exit;
 }
 
-// Trả về link vượt link rút gọn (tĩnh) + số lượt còn lại
-// Key sẽ được tạo ở claim.php SAU KHI user vượt link thành công
+// ✅ CẤP VÉ MỘT LẦN (lưu vào session của trình duyệt này)
+ $_SESSION['claim_ticket'] = [
+    'created' => time(),
+    'ip'      => $ip,
+];
+
 echo json_encode([
     'status' => 'success',
     'unlockUrl' => KEYGEN_CLAIM_SHORTLINK,
