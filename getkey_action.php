@@ -1,5 +1,5 @@
 <?php
-// getkey_action.php - Kiểm tra lượt + cấp vé lấy key (gọi bằng AJAX từ getkey.php)
+// getkey_action.php - Kiểm tra lượt + cấp vé lấy key (gọi bằng AJAX từ getkey)
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/keygen_functions.php';
 
