@@ -1,7 +1,9 @@
 <?php
-// claim.php - Tạo và hiển thị key sau khi người dùng vượt link rút gọn thành công
+// claim.php - Cấp key sau khi vượt link. Chỉ nhận người có "vé" hợp lệ.
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/keygen_functions.php';
+
+session_start();
 
  $ip = getClientIp();
 
@@ -9,12 +11,30 @@ require_once __DIR__ . '/keygen_functions.php';
  $keyText = null;
  $keyInfo = null;
 
-if (!checkRateLimit('claim_' . $ip, 10, 60)) {
-    $blockedMsg = 'Quá nhiều yêu cầu. Vui lòng đợi vài phút rồi thử lại!';
-} else {
-    cleanupOldKeyPages();
-    if (countRecentKeysByIp($ip) >= KEYGEN_MAX_PER_HOUR) {
-        $blockedMsg = 'Bạn đã hết lượt lấy key trong giờ này. Vui lòng thử lại sau!';
+// ==== KIỂM TRA VÉ MỘT LẦN ====
+ $ticket = $_SESSION['claim_ticket'] ?? null;
+unset($_SESSION['claim_ticket']); // vé tự hủy ngay, không tái sử dụng
+
+if ($ticket === null) {
+    $blockedMsg = 'Vui lòng bấm Generate trên trang lấy key trước khi lấy key!';
+} elseif (!is_array($ticket) || ($ticket['ip'] ?? '') !== $ip) {
+    $blockedMsg = 'Vé không hợp lệ. Vui lòng bấm Generate lại!';
+} elseif ((time() - (int)($ticket['created'] ?? 0)) < KEYGEN_MIN_CLAIM_SECONDS) {
+    // Đến quá nhanh => nghi bypass tool
+    $blockedMsg = 'Phát hiện truy cập bất thường! Hãy vượt link theo cách thông thường.';
+} elseif ((time() - (int)($ticket['created'] ?? 0)) > KEYGEN_TICKET_TTL_SECONDS) {
+    // Generate xong quá lâu mới đến => vé hết hạn
+    $blockedMsg = 'Vé đã hết hạn. Vui lòng quay lại bấm Generate!';
+}
+
+if ($blockedMsg === '') {
+    if (!checkRateLimit('claim_' . $ip, 10, 60)) {
+        $blockedMsg = 'Quá nhiều yêu cầu. Vui lòng đợi vài phút rồi thử lại!';
+    } else {
+        cleanupOldKeyPages();
+        if (countRecentKeysByIp($ip) >= KEYGEN_MAX_PER_HOUR) {
+            $blockedMsg = 'Bạn đã hết lượt lấy key trong giờ này. Vui lòng thử lại sau!';
+        }
     }
 }
 
