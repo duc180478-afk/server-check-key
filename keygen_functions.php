@@ -23,6 +23,13 @@ define('KEYGEN_MAX_PER_HOUR', 3);
 // Thời gian lưu log claim (giờ) — chỉ dùng để đếm lượt theo IP
 define('KEYGEN_LOG_TTL_HOURS', 24);
 
+// ⏱️ Thời gian tối thiểu từ lúc bấm Generate đến khi đến claim (giây)
+// Đến nhanh hơn mức này = nghi là bypass tool -> chặn
+define('KEYGEN_MIN_CLAIM_SECONDS', 45);
+
+// ⏱️ Vé có hiệu lực bao lâu sau khi bấm Generate (giây) = 10 phút
+define('KEYGEN_TICKET_TTL_SECONDS', 600);
+
 // ==========================================================
 
 // Bảng key_pages dùng làm LOG ghi nhận IP lấy key (để giới hạn lượt)
@@ -51,7 +58,7 @@ function initKeyPagesTable() {
     $done = true;
 }
 
-// Ghi log 1 lần lấy key (đếm lượt theo IP)
+// Ghi log 1 lần lấy key (để đếm lượt theo IP)
 function logClaim($keyText, $ip) {
     initKeyPagesTable();
     $pdo = Database::getConnection();
