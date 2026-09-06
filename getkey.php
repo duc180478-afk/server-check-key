@@ -107,7 +107,7 @@ const btnOriginal = btn.innerHTML;
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     btn.disabled = true;
-    btn.innerHTML = '⏳ Đang tạo key...';
+    btn.innerHTML = '⏳ Đang xử lý...';
     resultArea.innerHTML = '';
     try {
         const res = await fetch('getkey_action.php', { method: 'POST' });
@@ -115,10 +115,10 @@ form.addEventListener('submit', async (e) => {
         if (data.status === 'success') {
             resultArea.innerHTML =
                 '<div class="result-box success">' +
-                    '<p class="rb-title">✅ Tạo key thành công!</p>' +
-                    '<p class="rb-text">Bấm nút bên dưới để vượt link rút gọn.<br>Sau khi hoàn thành, trang chứa key sẽ tự động mở ra.</p>' +
-                    '<a class="unlock-btn" href="' + data.shortlink + '" target="_blank" rel="noopener noreferrer">🔓 Vượt Link Để Lấy Key</a>' +
-                    '<p class="rb-note">⚠️ Mẹo: tắt trình chặn quảng cáo (nếu có) để vượt link thành công nhé!</p>' +
+                    '<p class="rb-title">✅ Sẵn sàng!</p>' +
+                    '<p class="rb-text">Bấm nút bên dưới để vượt link rút gọn.<br>Sau khi hoàn thành, key sẽ hiện ra ngay.</p>' +
+                    '<a class="unlock-btn" href="' + data.unlockUrl + '" target="_blank" rel="noopener noreferrer">🔓 Vượt Link Để Lấy Key</a>' +
+                    '<p class="rb-note">⚠️ Tắt trình chặn quảng cáo (nếu có) để vượt link thành công.<br>📊 Còn ' + (data.remaining ?? '?') + ' lượt lấy key trong giờ này.</p>' +
                 '</div>';
         } else {
             resultArea.innerHTML = '<div class="result-box error">❌ ' + (data.message || 'Có lỗi xảy ra, thử lại!') + '</div>';
