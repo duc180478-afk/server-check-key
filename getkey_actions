@@ -1,4 +1,4 @@
-u<?php
+<?php
 // getkey_action.php - API tạo key free (gọi bằng AJAX từ getkey.php)
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/keygen_functions.php';
