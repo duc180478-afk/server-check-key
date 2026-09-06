@@ -1,14 +1,14 @@
 <?php
 // keygen_functions.php
-// Các hàm phục vụ trang lấy key miễn phí (getkey.php + claim.php)
+// Các hàm phục vụ trang lấy key miễn phí (getkey + claim)
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/functions.php';
 
 // ================== CẤU HÌNH — SỬA Ở ĐÂY ==================
 
-// ⭐ Link rút gọn tĩnh (trỏ tới https://server-check-key.onrender.com/claim.php)
-define('KEYGEN_CLAIM_SHORTLINK', 'https://link4m.org/go/YvJMIH9t');
+// ⭐ Link rút gọn tĩnh (trỏ tới https://server-check-key.onrender.com/claim)
+define('KEYGEN_CLAIM_SHORTLINK', 'https://link4m.net/go/2EdzW3');
 
 // Game cố định (khoá cứng)
 define('KEYGEN_GAME_LABEL',  'FakeLag-Free Fire');
