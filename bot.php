@@ -26,7 +26,7 @@ function sendTelegramMessageLocal($chatId, $text, $keyboard = null) {
         ]
     ];
     $context  = stream_context_create($options);
-    return file_get_contents($url, false, $context);
+    return @file_get_contents($url, false, $context);
 }
 
 function editTelegramMessageLocal($chatId, $messageId, $text, $keyboard = null) {
@@ -51,7 +51,7 @@ function editTelegramMessageLocal($chatId, $messageId, $text, $keyboard = null) 
         ]
     ];
     $context  = stream_context_create($options);
-    return file_get_contents($url, false, $context);
+    return @file_get_contents($url, false, $context);
 }
 
 function sendOrEditMessage($chatId, $text, $keyboard = null, $messageId = null) {
@@ -65,8 +65,8 @@ function sendOrEditMessage($chatId, $text, $keyboard = null, $messageId = null) 
 }
 
 // ===== XỬ LÝ CALLBACK QUERY =====
-$content = file_get_contents('php://input');
-$update = json_decode($content, true);
+ $content = file_get_contents('php://input');
+ $update = json_decode($content, true);
 
 if (isset($update['callback_query'])) {
     $callback = $update['callback_query'];
@@ -147,9 +147,9 @@ if (!isset($update['message'])) {
     exit;
 }
 
-$message = $update['message'];
-$chatId = $message['chat']['id'];
-$text = trim($message['text'] ?? '');
+ $message = $update['message'];
+ $chatId = $message['chat']['id'];
+ $text = trim($message['text'] ?? '');
 
 // Kiểm tra admin
 if (!in_array($chatId, TELEGRAM_ADMIN_CHAT_IDS)) {
@@ -166,7 +166,7 @@ if (strpos($text, '/') === 0) {
 }
 
 // Nếu có trạng thái chờ, xử lý trước
-$state = getBotState($chatId);
+ $state = getBotState($chatId);
 if ($state) {
     $stateName = $state['state'];
     $stateData = $state['data'];
@@ -182,8 +182,8 @@ if ($state) {
             $prefix = $parts[0];
             $days = intval($parts[1]);
             $count = intval($parts[2]);
-            if ($count <= 0) {
-                sendTelegramMessageLocal($chatId, "⚠️ Số lượng phải lớn hơn 0.");
+            if ($count <= 0 || $count > 100) {
+                sendTelegramMessageLocal($chatId, "⚠️ Số lượng phải từ 1 đến 100.");
                 break;
             }
             $keys = createKeyBatch($prefix, $count, $days);
@@ -222,9 +222,12 @@ if ($state) {
                 $days = intval($text);
                 $keyData = getKeyById($id);
                 if ($keyData && $days > 0) {
-                    $newExpire = date('Y-m-d H:i:s', time() + $days * 86400);
+                    // Gia hạn cộng dồn: cộng vào hạn cũ nếu key chưa hết hạn
+                    $currentExpire = $keyData['expires_at'] ? strtotime($keyData['expires_at']) : 0;
+                    $baseTime = ($currentExpire > time()) ? $currentExpire : time();
+                    $newExpire = date('Y-m-d H:i:s', $baseTime + $days * 86400);
                     updateKey($id, ['expires_at' => $newExpire, 'status' => 'active']);
-                    sendTelegramMessageLocal($chatId, "✅ Đã gia hạn key <code>{$keyData['key']}</code> thêm <b>$days</b> ngày.\nHết hạn mới: $newExpire");
+                    sendTelegramMessageLocal($chatId, "✅ Đã gia hạn key <code>{$keyData['key']}</code> thêm <b>$days</b> ngày.\nHạn mới: $newExpire");
                 } else {
                     sendTelegramMessageLocal($chatId, "❌ Số ngày không hợp lệ hoặc key không tồn tại.");
                 }
@@ -257,6 +260,10 @@ if (strpos($text, '/start') === 0 || strpos($text, '/help') === 0 || strpos($tex
     $prefix = $parts[1];
     $days = intval($parts[2]);
     $count = intval($parts[3]);
+    if ($count <= 0 || $count > 100) {
+        sendTelegramMessageLocal($chatId, "⚠️ Số lượng phải từ 1 đến 100.");
+        exit;
+    }
     $keys = createKeyBatch($prefix, $count, $days);
     $msg = "✅ Đã tạo <b>$count</b> key:\n";
     foreach ($keys as $k) {
