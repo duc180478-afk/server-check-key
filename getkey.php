@@ -1,4 +1,4 @@
-<?php
+u<?php
 require_once __DIR__ . '/keygen_functions.php';
 ?>
 <!DOCTYPE html>
