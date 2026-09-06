@@ -6,7 +6,7 @@ require_once __DIR__ . '/keygen_functions.php';
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lấy Key Miễn Phí - <?= KEYGEN_GAME_LABEL ?></title>
+<title>Lấy Key Miễn Phí - <?= htmlspecialchars(KEYGEN_GAME_LABEL) ?></title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI', Arial, sans-serif; }
 body { background:#eef0f3; min-height:100vh; }
@@ -116,7 +116,7 @@ form.addEventListener('submit', async (e) => {
             resultArea.innerHTML =
                 '<div class="result-box success">' +
                     '<p class="rb-title">✅ Sẵn sàng!</p>' +
-                    '<p class="rb-text">Bấm nút bên dưới để vượt link rút gọn.<br>Sau khi hoàn thành, key sẽ hiện ra ngay.</p>' +
+                    '<p class="rb-text">Bấm nút bên dưới để vượt link rút gọn.<br>Sau khi vượt link xong, key sẽ hiện ra.<br>⏱️ Quá trình vượt link phải mất trên <b>45 giây</b> (đến nhanh hơn hệ thống sẽ từ chối cấp key!).</p>' +
                     '<a class="unlock-btn" href="' + data.unlockUrl + '" target="_blank" rel="noopener noreferrer">🔓 Vượt Link Để Lấy Key</a>' +
                     '<p class="rb-note">⚠️ Tắt trình chặn quảng cáo (nếu có) để vượt link thành công.<br>📊 Còn ' + (data.remaining ?? '?') + ' lượt lấy key trong giờ này.</p>' +
                 '</div>';
