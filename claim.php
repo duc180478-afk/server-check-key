@@ -1,4 +1,4 @@
-<?php
+u<?php
 // claim.php - Cấp key sau khi vượt link. Chỉ nhận người có "vé" hợp lệ.
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/keygen_functions.php';
