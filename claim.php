@@ -78,7 +78,7 @@ body { background:#eef0f3; min-height:100vh; display:flex; align-items:center; j
     <div class="card-body">
         <div class="error-icon">😕</div>
         <p class="err-text"><?= htmlspecialchars($blockedMsg) ?></p>
-        <a class="back-link" href="getkey.php">🔑 Quay lại trang lấy key</a>
+        <a class="back-link" href="getkey">🔑 Quay lại trang lấy key</a>
     </div>
 <?php else: ?>
     <div class="card-head">🎉 Key Của Bạn</div>
@@ -95,7 +95,7 @@ body { background:#eef0f3; min-height:100vh; display:flex; align-items:center; j
         <?php endif; ?>
 
         <button class="copy-btn" id="copyBtn" onclick="copyKey()">📋 Sao Chép Key</button>
-        <a class="back-link" href="getkey.php">🔑 Lấy Key Khác</a>
+        <a class="back-link" href="getkey">🔑 Lấy Key Khác</a>
     </div>
 <?php endif; ?>
 </div>
