@@ -23,7 +23,7 @@ define('KEYGEN_MAX_PER_HOUR', 3);
 // Trang chứa key sống bao lâu (giờ) trước khi tự vô hiệu
 define('KEYGEN_PAGE_TTL_HOURS', 24);
 
-// ✅ DEBUG: đặt true để hiện chi tiết lỗi link4m ngay trên web (xong rồi đặt lại false!)
+// DEBUG: true = hiện chi tiết lỗi link4m trên web (xong nhớ đặt về false!)
 define('KEYGEN_DEBUG', false);
 
 // ==========================================================
@@ -96,7 +96,6 @@ function cleanupOldKeyPages() {
         ->execute([date('Y-m-d H:i:s', time() - KEYGEN_PAGE_TTL_HOURS * 3600)]);
 }
 
-// Xóa key theo chuỗi key (dùng để rollback khi tạo link thất bại)
 function deleteKeyByKey($keyText) {
     $keyData = getKeyByKey($keyText);
     if ($keyData) {
@@ -104,60 +103,96 @@ function deleteKeyByKey($keyText) {
     }
 }
 
-/**
- * Gọi API link4m.co để rút gọn link.
- * ✅ Trả về mảng: ['success' => bool, 'shortlink' => string, 'error' => string, 'raw' => string]
- * Ghi log ra error_log (xem trong Render Dashboard -> Logs)
- */
-function createLink4mShortlink($url) {
-    $apiUrl = 'https://link4m.co/st?api=' . KEYGEN_LINK4M_API . '&url=' . urlencode($url);
-
+// ===== HTTP GET: ưu tiên cURL, fallback file_get_contents =====
+function keygenHttpGet($url) {
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 20,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+            CURLOPT_HTTPHEADER     => ['Accept: application/json, text/plain, */*'],
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+        if ($resp === false) {
+            error_log('[keygen] cURL error: ' . $err);
+            return false;
+        }
+        error_log('[keygen] HTTP ' . $code);
+        return $resp;
+    }
     $context = stream_context_create(['http' => [
         'timeout'       => 20,
-        'method'        => 'GET',
-        'ignore_errors' => true, // vẫn nhận body dù trả 4xx/5xx
-        'header'        => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n" .
-                           "Accept: application/json, text/plain, */*\r\n"
+        'ignore_errors' => true,
+        'header'        => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nAccept: application/json, text/plain, */*\r\n",
     ]]);
+    return @file_get_contents($url, false, $context);
+}
 
-    $resp = @file_get_contents($apiUrl, false, $context);
-
-    if ($resp === false) {
-        error_log('[keygen] link4m: KHONG ket noi duoc den link4m.co');
-        return ['success' => false, 'shortlink' => '', 'error' => 'Không kết nối được đến link4m.co', 'raw' => ''];
-    }
-
-    // Lấy mã HTTP trả về (để log)
-    $httpCode = 0;
-    if (isset($http_response_header) && preg_match('#HTTP/\S+\s+(\d{3})#', $http_response_header[0], $m)) {
-        $httpCode = (int)$m[1];
-    }
-    error_log('[keygen] link4m: HTTP ' . $httpCode . ' | Raw: ' . substr($resp, 0, 500));
-
-    // Thử parse JSON với nhiều tên trường khác nhau
+// Parse response của link4m: hỗ trợ JSON nhiều format + text thuần
+function parseLink4mResponse($resp) {
+    if (!is_string($resp) || trim($resp) === '') return null;
     $data = json_decode($resp, true);
     if (is_array($data)) {
         $short = $data['shortenedUrl']
               ?? $data['shorturl']
               ?? $data['short']
-              ?? $data['url']
               ?? $data['shortlink']
+              ?? $data['shortened']
+              ?? $data['url']
               ?? ($data['data']['shortlink'] ?? null)
               ?? ($data['data']['url'] ?? null);
         if (is_string($short) && filter_var($short, FILTER_VALIDATE_URL)) {
+            return $short;
+        }
+        return null;
+    }
+    // API trả text thuần (chỉ 1 dòng link)
+    $trim = trim($resp);
+    if (filter_var($trim, FILTER_VALIDATE_URL)) return $trim;
+    return null;
+}
+
+/**
+ * Gọi API link4m.co rút gọn link.
+ * ✅ Thử 2 kiểu: URL NGUYÊN BẢN (giống khi bạn dán tay vào trình duyệt)
+ *    rồi mới đến kiểu urlencoded.
+ */
+function createLink4mShortlink($url) {
+    $apiBase = 'https://link4m.co/st?api=' . KEYGEN_LINK4M_API . '&url=';
+
+    $candidates = [
+        $apiBase . $url,             // 1. nguyên bản (raw) — giống dán tay
+        $apiBase . urlencode($url),  // 2. encode
+    ];
+
+    $lastErr = 'Không tạo được link từ link4m';
+    $lastRaw = '';
+
+    foreach ($candidates as $i => $apiUrl) {
+        $label = ($i === 0) ? 'raw' : 'encoded';
+        error_log('[keygen] link4m thu kieu ' . $label . ': ' . $apiUrl);
+
+        $resp = keygenHttpGet($apiUrl);
+        if ($resp === false) {
+            $lastErr = 'Không kết nối được đến link4m.co';
+            continue;
+        }
+        error_log('[keygen] link4m (' . $label . ') response: ' . substr($resp, 0, 400));
+        $lastRaw = $resp;
+
+        $short = parseLink4mResponse($resp);
+        if ($short !== null) {
             return ['success' => true, 'shortlink' => $short, 'error' => '', 'raw' => $resp];
         }
-        $errMsg = $data['message'] ?? $data['error'] ?? $data['msg'] ?? 'link4m từ chối yêu cầu';
-        return ['success' => false, 'shortlink' => '', 'error' => (string)$errMsg, 'raw' => $resp];
+        $lastErr = 'link4m phản hồi nhưng không có link hợp lệ';
     }
 
-    // Fallback: API trả về link dạng text thuần
-    $trim = trim($resp);
-    if (filter_var($trim, FILTER_VALIDATE_URL) && strpos($trim, 'http') === 0) {
-        return ['success' => true, 'shortlink' => $trim, 'error' => '', 'raw' => $resp];
-    }
-
-    return ['success' => false, 'shortlink' => '', 'error' => 'Phản hồi không hiểu từ link4m', 'raw' => $resp];
+    return ['success' => false, 'shortlink' => '', 'error' => $lastErr, 'raw' => $lastRaw];
 }
 
 function getSiteBaseUrl() {
