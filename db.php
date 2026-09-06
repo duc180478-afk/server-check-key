@@ -52,6 +52,11 @@ class Database {
                 state TEXT,
                 data TEXT
             )");
+            $pdo->exec("CREATE TABLE IF NOT EXISTS rate_limits (
+                id SERIAL PRIMARY KEY,
+                identifier TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )");
         } else {
             $pdo->exec("CREATE TABLE IF NOT EXISTS keys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +75,11 @@ class Database {
                 chat_id TEXT PRIMARY KEY,
                 state TEXT,
                 data TEXT
+            )");
+            $pdo->exec("CREATE TABLE IF NOT EXISTS rate_limits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                identifier TEXT NOT NULL,
+                created_at TEXT NOT NULL
             )");
         }
     }
