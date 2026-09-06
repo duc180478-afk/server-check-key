@@ -27,10 +27,7 @@ if (countRecentKeysByIp($ip) >= KEYGEN_MAX_PER_HOUR) {
     exit;
 }
 
-// ===== QUÁ TRÌNH BÍ MẬT BÊN SERVER (người dùng không thấy) =====
-// Mọi thứ đều khoá cứng ở server: game, prefix, số ngày.
-// Người dùng không gửi tham số nào cả -> không thể can thiệp.
-
+// ===== QUÁ TRÌNH BÍ MẬT BÊN SERVER =====
 // 1. Tạo key thật (cố định: prefix FLFF, 1 ngày, 1 device)
  $keyText = createKey(KEYGEN_GAME_PREFIX, KEYGEN_DAYS, 1, 'Free key - web getkey');
 
@@ -39,12 +36,20 @@ if (countRecentKeysByIp($ip) >= KEYGEN_MAX_PER_HOUR) {
  $keyPageUrl = getSiteBaseUrl() . '/viewkey.php?token=' . $token;
 
 // 3. Gửi URL trang chứa key vào link4m.co để tạo link rút gọn
- $shortlink = createLink4mShortlink($keyPageUrl);
+ $result = createLink4mShortlink($keyPageUrl);
 
-if (!$shortlink) {
-    echo json_encode(['status' => 'error', 'message' => 'Không tạo được link, vui lòng thử lại sau!']);
+if (!$result['success']) {
+    // ✅ QUAN TRỌNG: rollback — xóa trang key + xóa key để KHÔNG tốn quota của user
+    deleteKeyPage($token);
+    deleteKeyByKey($keyText);
+
+    $msg = 'Không tạo được link, vui lòng thử lại sau!';
+    if (KEYGEN_DEBUG) {
+        $msg .= ' [DEBUG] Lỗi: ' . $result['error'] . ' | Raw: ' . mb_substr($result['raw'], 0, 300);
+    }
+    echo json_encode(['status' => 'error', 'message' => $msg]);
     exit;
 }
 
-// 4. Chỉ trả về link rút gọn — KHÔNG bao giờ trả URL trực tiếp
-echo json_encode(['status' => 'success', 'shortlink' => $shortlink]);
+// 4. Chỉ trả về link rút gọn
+echo json_encode(['status' => 'success', 'shortlink' => $result['shortlink']]);
