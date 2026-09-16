@@ -9,7 +9,7 @@ header('Content-Type: application/json');
 // ★ APP_SECRET — PHẢI GIỐNG CHÍNH XÁC chuỗi đã obfuscate trong
 //   Secrets.kt → APP_SECRET_OBF (salt 0x77)
 // ★ ĐỔI thành chuỗi của bạn nếu chưa
- $APP_SECRET = 'CHUỖI_SECRET_CỦA_BẠN';
+ $APP_SECRET = 'FAKEPING_BY_MDUCDZ';
 
 // Chống brute-force: tối đa 30 request / 60 giây / IP
  $ip = getClientIp();
