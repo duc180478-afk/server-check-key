@@ -45,7 +45,8 @@ class Database {
                 status TEXT DEFAULT 'active',
                 times_used INTEGER DEFAULT 0,
                 last_used_at TEXT,
-                note TEXT
+                note TEXT,
+                app TEXT DEFAULT 'other'
             )");
             $pdo->exec("CREATE TABLE IF NOT EXISTS bot_states (
                 chat_id TEXT PRIMARY KEY,
@@ -69,7 +70,8 @@ class Database {
                 status TEXT DEFAULT 'active',
                 times_used INTEGER DEFAULT 0,
                 last_used_at TEXT,
-                note TEXT
+                note TEXT,
+                app TEXT DEFAULT 'other'
             )");
             $pdo->exec("CREATE TABLE IF NOT EXISTS bot_states (
                 chat_id TEXT PRIMARY KEY,
@@ -81,6 +83,13 @@ class Database {
                 identifier TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )");
+        }
+
+        // MIGRATION: DB cũ chưa có cột app -> tự thêm (không mất data)
+        try {
+            $pdo->exec("ALTER TABLE keys ADD COLUMN app TEXT DEFAULT 'other'");
+        } catch (PDOException $e) {
+            // cột đã tồn tại — bỏ qua
         }
     }
 }
