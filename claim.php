@@ -1,5 +1,5 @@
 <?php
-// claim.php - Cấp key sau khi vượt link. Chỉ nhận người có "vé" hợp lệ.
+// claim.php - Cấp key sau khi vượt link. Phân loại key theo app trong vé.
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/keygen_functions.php';
 
@@ -10,21 +10,30 @@ session_start();
  $blockedMsg = '';
  $keyText = null;
  $keyInfo = null;
+ $gameLabel = 'Unknown';
 
 // ==== KIỂM TRA VÉ MỘT LẦN ====
  $ticket = $_SESSION['claim_ticket'] ?? null;
-unset($_SESSION['claim_ticket']); // vé tự hủy ngay, không tái sử dụng
+unset($_SESSION['claim_ticket']); // vé tự hủy, không tái sử dụng
 
 if ($ticket === null) {
     $blockedMsg = 'Vui lòng bấm Generate trên trang lấy key trước khi lấy key!';
 } elseif (!is_array($ticket) || ($ticket['ip'] ?? '') !== $ip) {
     $blockedMsg = 'Vé không hợp lệ. Vui lòng bấm Generate lại!';
 } elseif ((time() - (int)($ticket['created'] ?? 0)) < KEYGEN_MIN_CLAIM_SECONDS) {
-    // Đến quá nhanh => nghi bypass tool
     $blockedMsg = 'Phát hiện truy cập bất thường! Hãy vượt link theo cách thông thường.';
 } elseif ((time() - (int)($ticket['created'] ?? 0)) > KEYGEN_TICKET_TTL_SECONDS) {
-    // Generate xong quá lâu mới đến => vé hết hạn
     $blockedMsg = 'Vé đã hết hạn. Vui lòng quay lại bấm Generate!';
+}
+
+// Xác định app từ vé (whitelist lại lần nữa)
+ $gameKey = is_array($ticket) ? ($ticket['game'] ?? '') : '';
+if ($blockedMsg === '' && isset($KEYGEN_APPS[$gameKey])) {
+    $gameLabel  = $KEYGEN_APPS[$gameKey]['label'];
+    $gamePrefix = $KEYGEN_APPS[$gameKey]['prefix'];
+    $gameDays   = $KEYGEN_APPS[$gameKey]['days'];
+} elseif ($blockedMsg === '') {
+    $blockedMsg = 'Vé không hợp lệ. Vui lòng bấm Generate lại!';
 }
 
 if ($blockedMsg === '') {
@@ -40,8 +49,8 @@ if ($blockedMsg === '') {
 
 if ($blockedMsg === '') {
     try {
-        // ✅ Tạo key NGAY LÚC NÀY (user đã vượt link xong)
-        $keyText = createKey(KEYGEN_GAME_PREFIX, KEYGEN_DAYS, 1, 'Free key - claim');
+        // Tạo key đúng loại app user đã chọn (app lưu vào cột app của DB)
+        $keyText = createKey($gamePrefix, $gameDays, 1, 'Free key - ' . $gameKey, $gameKey);
         logClaim($keyText, $ip);
         $keyInfo = getKeyByKey($keyText);
     } catch (Exception $e) {
@@ -87,7 +96,7 @@ body { background:#eef0f3; min-height:100vh; display:flex; align-items:center; j
 
         <?php if ($keyInfo): ?>
             <div class="info">
-                <div>🎮 <b>Game:</b> <span class="game-name"><?= htmlspecialchars(KEYGEN_GAME_LABEL) ?></span></div>
+                <div>🎮 <b>App:</b> <span class="game-name"><?= htmlspecialchars($gameLabel) ?></span></div>
                 <div>📅 <b>Hết hạn:</b> <?= htmlspecialchars($keyInfo['expires_at'] ?: 'Vĩnh viễn') ?></div>
                 <div>⏳ <b>Còn lại:</b> <?= htmlspecialchars(getTimeRemaining($keyInfo['expires_at'])) ?></div>
                 <div>🔖 <b>Trạng thái:</b> <?= $keyInfo['status'] === 'active' ? '✅ Hoạt động' : '⛔' ?></div>
