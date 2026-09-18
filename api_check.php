@@ -19,7 +19,8 @@ if (!checkRateLimit('api_' . $ip, 30, 60)) {
 }
 
  $key  = isset($_GET['key'])  ? trim($_GET['key'])  : '';
- $hwid = isset($_GET['hwid']) ? trim($_GET['hwid']) : ''; // nhận nhưng không bắt buộc
+ $hwid = isset($_GET['hwid']) ? trim($_GET['hwid']) : '';
+ $app_client = isset($_GET['app']) ? strtolower(trim($_GET['app'])) : '';
 
 if (empty($key)) {
     echo json_encode([
@@ -34,12 +35,38 @@ if (empty($key)) {
 // Gọi validateKey — KHÔNG đổi logic DB
  $result = validateKey($key, $hwid);
 
-// ★ PHÂN LOẠI APP theo cột app của key (không phụ thuộc prefix)
+// Phân loại app từ DB
  $kd = getKeyByKey($key);
  $result['app'] = $kd ? getAppLabel($kd['app'] ?? '') : 'Unknown';
 
 // ================================================================
-// ★ HMAC PAYLOAD (Lớp 3)
+// ★ APP FILTER: key chỉ dùng được cho app nó được tạo ra
+// fakelag key → chỉ FakePing app; proxy key → chỉ Proxy app
+// ================================================================
+ $app_from_db = strtolower(trim($kd['app'] ?? ''));
+ $is_key_valid = false;
+
+// Xác định key có hợp lệ từ validateKey không
+if (is_array($result) && isset($result['status']) && strtolower($result['status']) === 'success') {
+    $is_key_valid = true;
+}
+if (isset($result['valid']) && $result['valid'] === true) {
+    $is_key_valid = true;
+}
+
+// Nếu key hợp lệ NHƯNG app client không khớp app của key → từ chối
+if ($is_key_valid && $kd && $app_from_db && $app_client) {
+    if ($app_from_db !== $app_client) {
+        $result = [
+            'status' => 'error',
+            'message' => 'Key này chỉ dùng cho app ' . getAppLabel($app_from_db),
+            'valid' => false
+        ];
+    }
+}
+
+// ================================================================
+// ★ HMAC PAYLOAD
 // ================================================================
  $ok = 0;
 if (is_array($result)) {
