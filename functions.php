@@ -3,6 +3,22 @@
 
 require_once 'db.php';
 
+// ===== DANH SÁCH APP HỆ THỐNG (dùng chung: web / bot / admin) =====
+// Thêm app mới ở đây — mọi nơi tự cập nhật theo
+define('SYSTEM_APPS', [
+    'fakelag' => ['label' => 'FakeLag',  'default_prefix' => 'FLFF'],
+    'proxy'   => ['label' => 'Proxy FF', 'default_prefix' => 'PRX'],
+]);
+
+// Lấy tên app hiển thị từ giá trị cột app
+function getAppLabel($appKey) {
+    $appKey = strtolower(trim((string)$appKey));
+    if (isset(SYSTEM_APPS[$appKey])) {
+        return SYSTEM_APPS[$appKey]['label'];
+    }
+    return 'Other';
+}
+
 function generateRandomString($length = 10) {
     $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     $random = '';
@@ -12,7 +28,7 @@ function generateRandomString($length = 10) {
     return $random;
 }
 
-function createKey($prefix, $expiresDays = null, $hwidLimit = 1, $note = '') {
+function createKey($prefix, $expiresDays = null, $hwidLimit = 1, $note = '', $app = 'other') {
     $pdo = Database::getConnection();
     $random = generateRandomString(12);
     $key = $prefix . '-' . $random;
@@ -21,16 +37,16 @@ function createKey($prefix, $expiresDays = null, $hwidLimit = 1, $note = '') {
     if ($expiresDays !== null && $expiresDays > 0) {
         $expiresAt = date('Y-m-d H:i:s', time() + $expiresDays * 86400);
     }
-    $stmt = $pdo->prepare("INSERT INTO keys (key, prefix, created_at, expires_at, hwid_limit, hwids, status, note)
-                           VALUES (?, ?, ?, ?, ?, '[]', 'active', ?)");
-    $stmt->execute([$key, $prefix, $createdAt, $expiresAt, (int)$hwidLimit, $note]);
+    $stmt = $pdo->prepare("INSERT INTO keys (key, prefix, created_at, expires_at, hwid_limit, hwids, status, note, app)
+                           VALUES (?, ?, ?, ?, ?, '[]', 'active', ?, ?)");
+    $stmt->execute([$key, $prefix, $createdAt, $expiresAt, (int)$hwidLimit, $note, $app]);
     return $key;
 }
 
-function createKeyBatch($prefix, $count, $expiresDays = null, $hwidLimit = 1, $note = '') {
+function createKeyBatch($prefix, $count, $expiresDays = null, $hwidLimit = 1, $note = '', $app = 'other') {
     $keys = [];
     for ($i = 0; $i < $count; $i++) {
-        $keys[] = createKey($prefix, $expiresDays, $hwidLimit, $note);
+        $keys[] = createKey($prefix, $expiresDays, $hwidLimit, $note, $app);
     }
     return $keys;
 }
@@ -52,7 +68,7 @@ function getKeyById($id) {
 function updateKey($id, $fields) {
     $pdo = Database::getConnection();
     // Whitelist các cột được phép update (chống SQL injection qua tên cột)
-    $allowed = ['key', 'prefix', 'expires_at', 'hwid_limit', 'hwids', 'status', 'times_used', 'last_used_at', 'note'];
+    $allowed = ['key', 'prefix', 'expires_at', 'hwid_limit', 'hwids', 'status', 'times_used', 'last_used_at', 'note', 'app'];
     $sets = [];
     $params = [];
     foreach ($fields as $col => $val) {
@@ -76,10 +92,25 @@ function deleteKey($id) {
 
 function listKeys($limit = 100) {
     $pdo = Database::getConnection();
-    // Fix SQL injection: bind tham số LIMIT
     $limit = max(1, min((int)$limit, 500));
     $stmt = $pdo->prepare("SELECT * FROM keys ORDER BY created_at DESC LIMIT :lim");
     $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+// Lấy danh sách key lọc theo cột app ('fakelag', 'proxy', null = tất cả)
+function listKeysByApp($limit = 20, $app = null) {
+    $pdo = Database::getConnection();
+    $limit = max(1, min((int)$limit, 500));
+    if ($app !== null && $app !== '') {
+        $stmt = $pdo->prepare("SELECT * FROM keys WHERE app = :app ORDER BY created_at DESC LIMIT :lim");
+        $stmt->bindValue(':app', $app, PDO::PARAM_STR);
+        $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+    } else {
+        $stmt = $pdo->prepare("SELECT * FROM keys ORDER BY created_at DESC LIMIT :lim");
+        $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+    }
     $stmt->execute();
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
@@ -109,17 +140,15 @@ function validateKey($key, $hwid = null) {
     return ['status' => 'success', 'message' => 'Key hợp lệ!'];
 }
 
-// Hàm xóa các key hết hạn, nhưng giữ lại các key có prefix vip (không phân biệt hoa thường)
+// Xóa các key hết hạn, giữ lại các key có prefix vip (không phân biệt hoa thường)
 function cleanupExpiredKeys() {
     $pdo = Database::getConnection();
     $now = date('Y-m-d H:i:s');
 
-    // Cập nhật trạng thái expired cho tất cả key hết hạn (dùng prepared statement)
     $pdo->prepare("UPDATE keys SET status = 'expired'
                    WHERE expires_at IS NOT NULL AND expires_at < ? AND status != 'expired'")
         ->execute([$now]);
 
-    // Xóa các key hết hạn, ngoại trừ key có prefix là 'vip'
     $stmt = $pdo->prepare("DELETE FROM keys
                            WHERE expires_at IS NOT NULL AND expires_at < ?
                            AND LOWER(COALESCE(prefix, '')) != 'vip'");
@@ -128,7 +157,7 @@ function cleanupExpiredKeys() {
     return $stmt->rowCount();
 }
 
-// Hàm tính thời gian còn lại
+// Tính thời gian còn lại
 function getTimeRemaining($expiresAt) {
     if (empty($expiresAt)) {
         return 'Vĩnh viễn';
@@ -214,7 +243,7 @@ function verifyCsrfToken($token) {
     return isset($_SESSION['csrf_token']) && is_string($token) && hash_equals($_SESSION['csrf_token'], $token);
 }
 
-// ===== RATE LIMIT (lưu DB, hoạt động cả trên Render) =====
+// ===== RATE LIMIT (lưu DB) =====
 function getClientIp() {
     foreach (['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'] as $h) {
         if (!empty($_SERVER[$h])) {
