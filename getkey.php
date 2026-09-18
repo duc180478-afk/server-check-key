@@ -6,7 +6,7 @@ require_once __DIR__ . '/keygen_functions.php';
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lấy Key Miễn Phí - <?= htmlspecialchars(KEYGEN_GAME_LABEL) ?></title>
+<title>Lấy Key Miễn Phí</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI', Arial, sans-serif; }
 body { background:#eef0f3; min-height:100vh; }
@@ -26,8 +26,8 @@ body { background:#eef0f3; min-height:100vh; }
 .card-body { padding:24px 22px; }
 .input-group { display:flex; align-items:stretch; margin-bottom:16px; border:1px solid #cfd4da; border-radius:8px; overflow:hidden; background:#fff; }
 .icon-box { width:52px; min-width:52px; background:#f1f2f4; display:flex; align-items:center; justify-content:center; font-size:21px; border-right:1px solid #dfe3e7; }
+.input-group select { flex:1; border:none; padding:14px 15px; font-size:17px; outline:none; background:#fff; color:#222; min-width:0; }
 .input-group .value { flex:1; padding:14px 15px; font-size:17px; color:#222; display:flex; align-items:center; background:#fff; min-width:0; word-break:break-word; }
-.input-group .value.select-look::after { content:'▾'; margin-left:auto; color:#666; padding-left:10px; }
 .unit { display:flex; align-items:center; padding:0 16px; color:#333; font-size:17px; background:#fafbfc; border-left:1px solid #dfe3e7; }
 .btn-row { display:flex; justify-content:flex-end; margin-top:22px; }
 .generate-btn { background:#1a8cff; color:#fff; border:none; padding:13px 30px; border-radius:8px; font-size:18px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:9px; transition:background .2s; }
@@ -68,7 +68,12 @@ body { background:#eef0f3; min-height:100vh; }
             <form id="licenseForm">
                 <div class="input-group">
                     <div class="icon-box">🎮</div>
-                    <div class="value select-look"><?= htmlspecialchars(KEYGEN_GAME_LABEL) ?></div>
+                    <select name="game" id="gameSelect" required>
+                        <option value="">Select App</option>
+                        <?php foreach ($KEYGEN_APPS as $gKey => $g): ?>
+                            <option value="<?= htmlspecialchars($gKey) ?>"><?= htmlspecialchars($g['label']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
 
                 <div class="input-group">
@@ -107,11 +112,18 @@ const btnOriginal = btn.innerHTML;
 
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!document.getElementById('gameSelect').value) {
+        resultArea.innerHTML = '<div class="result-box error">❌ Vui lòng chọn app!</div>';
+        return;
+    }
     btn.disabled = true;
     btn.innerHTML = '⏳ Đang xử lý...';
     resultArea.innerHTML = '';
     try {
-        const res = await fetch('getkey_action.php', { method: 'POST' });
+        const res = await fetch('getkey_action.php', {
+            method: 'POST',
+            body: new FormData(form)
+        });
         const data = await res.json();
         if (data.status === 'success') {
             resultArea.innerHTML =
