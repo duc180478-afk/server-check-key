@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $wait = 300 - (time() - $lastAttempt);
             $error = "Sai quá nhiều lần! Thử lại sau $wait giây.";
         } elseif (password_verify($_POST['password'] ?? '', ADMIN_PASSWORD_HASH)) {
-            session_regenerate_id(true); // chống session fixation
+            session_regenerate_id(true);
             $_SESSION['admin_logged_in'] = true;
             unset($_SESSION['login_attempts'], $_SESSION['last_attempt']);
             header('Location: index.php');
