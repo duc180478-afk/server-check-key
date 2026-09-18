@@ -8,7 +8,15 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
     exit;
 }
 
- $keys = listKeys(200);
+// Bộ lọc danh sách theo app
+ $appFilter = $_GET['app'] ?? 'all';
+if (isset(SYSTEM_APPS[$appFilter])) {
+    $keys = listKeysByApp(200, $appFilter);
+} else {
+    $appFilter = 'all';
+    $keys = listKeys(200);
+}
+
  $msg = $_GET['msg'] ?? '';
 ?>
 <!DOCTYPE html>
@@ -20,6 +28,8 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; }
         .form-section { margin-bottom: 30px; }
+        .filter-bar { margin-bottom: 15px; }
+        .app-tag { font-weight: bold; }
     </style>
 </head>
 <body>
@@ -34,7 +44,14 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
         <form method="post" action="actions.php">
             <?= csrfField() ?>
             <input type="hidden" name="action" value="create_single">
-            <label>Prefix: <input type="text" name="prefix" value="KEY" required maxlength="20"></label><br>
+            <label>App:
+                <select name="app" onchange="updatePrefix(this)">
+                    <?php foreach (SYSTEM_APPS as $aKey => $a): ?>
+                        <option value="<?= $aKey ?>" data-prefix="<?= $a['default_prefix'] ?>"><?= $a['label'] ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label><br>
+            <label>Prefix (tùy ý): <input type="text" name="prefix" value="FLFF" maxlength="20"></label><br>
             <label>Số ngày hết hạn (bỏ trống nếu vĩnh viễn): <input type="number" name="days" min="1"></label><br>
             <label>Giới hạn thiết bị: <input type="number" name="hwid_limit" value="1" min="1"></label><br>
             <label>Ghi chú: <input type="text" name="note"></label><br>
@@ -47,7 +64,14 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
         <form method="post" action="actions.php">
             <?= csrfField() ?>
             <input type="hidden" name="action" value="create_batch">
-            <label>Prefix: <input type="text" name="prefix" value="KEY" required maxlength="20"></label><br>
+            <label>App:
+                <select name="app" onchange="updatePrefix(this)">
+                    <?php foreach (SYSTEM_APPS as $aKey => $a): ?>
+                        <option value="<?= $aKey ?>" data-prefix="<?= $a['default_prefix'] ?>"><?= $a['label'] ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label><br>
+            <label>Prefix (tùy ý): <input type="text" name="prefix" value="FLFF" maxlength="20"></label><br>
             <label>Số lượng: <input type="number" name="count" value="5" min="1" max="100"></label><br>
             <label>Số ngày hết hạn (bỏ trống nếu vĩnh viễn): <input type="number" name="days" min="1"></label><br>
             <label>Giới hạn thiết bị: <input type="number" name="hwid_limit" value="1" min="1"></label><br>
@@ -57,14 +81,25 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
     </div>
 
     <h2>Danh sách key</h2>
+
+    <div class="filter-bar">
+        Xem theo app:
+        <select onchange="location='?app='+this.value;">
+            <option value="all" <?= $appFilter === 'all' ? 'selected' : '' ?>>Tất cả</option>
+            <?php foreach (SYSTEM_APPS as $aKey => $a): ?>
+                <option value="<?= $aKey ?>" <?= $appFilter === $aKey ? 'selected' : '' ?>><?= $a['label'] ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+
     <table>
         <tr>
             <th>ID</th>
             <th>Key</th>
+            <th>App</th>
             <th>Prefix</th>
             <th>Ngày tạo</th>
             <th>Hết hạn</th>
-            <th>Giới hạn HWID</th>
             <th>HWID đã dùng</th>
             <th>Trạng thái</th>
             <th>Số lần dùng</th>
@@ -74,10 +109,10 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
         <tr>
             <td><?= (int)$k['id'] ?></td>
             <td><?= htmlspecialchars($k['key']) ?></td>
+            <td><?= htmlspecialchars(getAppLabel($k['app'] ?? '')) ?></td>
             <td><?= htmlspecialchars($k['prefix']) ?></td>
             <td><?= htmlspecialchars($k['created_at']) ?></td>
             <td><?= htmlspecialchars($k['expires_at'] ?: 'Vĩnh viễn') ?></td>
-            <td><?= (int)$k['hwid_limit'] ?></td>
             <td><?= htmlspecialchars($k['hwids']) ?></td>
             <td><?= htmlspecialchars($k['status']) ?></td>
             <td><?= (int)$k['times_used'] ?></td>
@@ -86,18 +121,21 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                     <?= csrfField() ?>
                     <input type="hidden" name="action" value="toggle_status">
                     <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
+                    <input type="hidden" name="return_app" value="<?= htmlspecialchars($appFilter) ?>">
                     <button type="submit"><?= $k['status'] === 'active' ? 'Disable' : 'Enable' ?></button>
                 </form>
                 <form method="post" action="actions.php" style="display:inline">
                     <?= csrfField() ?>
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
+                    <input type="hidden" name="return_app" value="<?= htmlspecialchars($appFilter) ?>">
                     <button type="submit" onclick="return confirm('Xóa key này?')">Xóa</button>
                 </form>
                 <form method="post" action="actions.php" style="display:inline">
                     <?= csrfField() ?>
                     <input type="hidden" name="action" value="extend">
                     <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
+                    <input type="hidden" name="return_app" value="<?= htmlspecialchars($appFilter) ?>">
                     <input type="number" name="days" placeholder="Số ngày" min="1" required>
                     <button type="submit">Gia hạn</button>
                 </form>
@@ -105,5 +143,12 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
         </tr>
         <?php endforeach; ?>
     </table>
+
+<script>
+function updatePrefix(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    sel.form.prefix.value = opt.dataset.prefix;
+}
+</script>
 </body>
 </html>
