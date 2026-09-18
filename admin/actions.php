@@ -21,36 +21,52 @@ if (!verifyCsrfToken($_POST['csrf_token'] ?? '')) {
 
  $action = $_POST['action'] ?? '';
  $msg = '';
+ $returnApp = $_POST['return_app'] ?? 'all';
+if (!isset(SYSTEM_APPS[$returnApp]) && $returnApp !== 'all') {
+    $returnApp = 'all';
+}
+ $returnUrl = 'index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : '');
 
 switch ($action) {
     case 'create_single':
-        $prefix = trim($_POST['prefix'] ?? 'KEY');
+        $app = $_POST['app'] ?? 'other';
+        if (!isset(SYSTEM_APPS[$app])) $app = 'other';
+        // Prefix TÙY Ý theo admin nhập (mặc định gợi ý theo app)
+        $prefix = strtoupper(trim($_POST['prefix'] ?? ''));
+        if ($prefix === '') $prefix = SYSTEM_APPS[$app]['default_prefix'];
         $daysRaw = trim($_POST['days'] ?? '');
         $days = ($daysRaw === '') ? null : intval($daysRaw);
         if ($days !== null && $days <= 0) {
             $msg = 'Số ngày phải lớn hơn 0 (bỏ trống = vĩnh viễn).';
-            break;
+            header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
+            exit;
         }
         $limit = max(1, intval($_POST['hwid_limit'] ?? 1));
         $note = trim($_POST['note'] ?? '');
-        $key = createKey($prefix, $days, $limit, $note);
-        $msg = "Đã tạo key: $key";
-        break;
+        $key = createKey($prefix, $days, $limit, $note, $app);
+        $msg = "Đã tạo key [" . SYSTEM_APPS[$app]['label'] . "]: $key";
+        header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
+        exit;
 
     case 'create_batch':
-        $prefix = trim($_POST['prefix'] ?? 'KEY');
-        $count = max(1, min(100, intval($_POST['count'] ?? 1))); // giới hạn tối đa 100 key/lần
+        $app = $_POST['app'] ?? 'other';
+        if (!isset(SYSTEM_APPS[$app])) $app = 'other';
+        $prefix = strtoupper(trim($_POST['prefix'] ?? ''));
+        if ($prefix === '') $prefix = SYSTEM_APPS[$app]['default_prefix'];
+        $count = max(1, min(100, intval($_POST['count'] ?? 1)));
         $daysRaw = trim($_POST['days'] ?? '');
         $days = ($daysRaw === '') ? null : intval($daysRaw);
         if ($days !== null && $days <= 0) {
             $msg = 'Số ngày phải lớn hơn 0 (bỏ trống = vĩnh viễn).';
-            break;
+            header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
+            exit;
         }
         $limit = max(1, intval($_POST['hwid_limit'] ?? 1));
         $note = trim($_POST['note'] ?? '');
-        $keys = createKeyBatch($prefix, $count, $days, $limit, $note);
-        $msg = "Đã tạo " . count($keys) . " key.";
-        break;
+        $keys = createKeyBatch($prefix, $count, $days, $limit, $note, $app);
+        $msg = "Đã tạo " . count($keys) . " key [" . SYSTEM_APPS[$app]['label'] . "] (prefix $prefix).";
+        header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
+        exit;
 
     case 'delete':
         $id = intval($_POST['id'] ?? 0);
@@ -85,5 +101,5 @@ switch ($action) {
         break;
 }
 
-header('Location: index.php?msg=' . urlencode($msg));
+header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
 exit;
