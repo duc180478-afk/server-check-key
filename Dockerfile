@@ -14,7 +14,4 @@ COPY . /var/www/html/
 # Tạo thư mục data và phân quyền (dùng cho SQLite fallback)
 RUN mkdir -p /var/www/html/data && chown -R www-data:www-data /var/www/html/data
 
-# Cấu hình Apache
-RUN a2enmod rewrite
-
 EXPOSE 80
