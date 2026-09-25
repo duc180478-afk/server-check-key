@@ -14,13 +14,13 @@ require_once __DIR__ . '/functions.php';
         'label'     => 'FakeLag-Free Fire',
         'prefix'    => 'FLFF',
         'days'      => 1,
-        'shortlink' => 'https://link4m.net/go/2EdzW3',
+        'shortlink' => 'https://link4m.net/go/Q9w2R',
     ],
     'proxy' => [
         'label'     => 'Proxy FF',
         'prefix'    => 'PRX',
         'days'      => 1,
-        'shortlink' => 'https://link4m.net/J6jvwz',
+        'shortlink' => 'https://link4m.net/go/Q9w2R',
     ],
 ];
 
