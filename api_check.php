@@ -1,182 +1,122 @@
 <?php
-// db.php
+// api_check.php — Phase 0+1: HMAC BẮT BUỘC, không còn đường vòng không-sig
 
-class Database {
-    private static $pdo = null;
+require_once 'config.php';
+require_once 'functions.php';
 
-    // Bump SCHEMA_VERSION mỗi lần thêm migration mới
-    private const SCHEMA_VERSION = 3;
+header('Content-Type: application/json');
 
-    public static function getConnection() {
-        if (self::$pdo === null) {
-            $dbUrl = getenv('DATABASE_URL');
-            if ($dbUrl) {
-                $parts = parse_url($dbUrl);
-                $host = $parts['host'];
-                $port = $parts['port'] ?? 5432;
-                $dbname = ltrim($parts['path'], '/');
-                $user = $parts['user'];
-                $password = $parts['pass'] ?? '';
-                $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
-                self::$pdo = new PDO($dsn, $user, $password);
-            } else {
-                if (!is_dir(dirname(DB_PATH))) {
-                    mkdir(dirname(DB_PATH), 0755, true);
-                }
-                self::$pdo = new PDO('sqlite:' . DB_PATH);
-            }
-            self::$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-            self::initTables();
-        }
-        return self::$pdo;
-    }
+// ★ APP_SECRET — PHẢI GIỐNG Secrets.kt → APP_SECRET_OBF (salt 0x77)
+// CẢNH BÁO: secret tĩnh + XOR đơn byte chỉ chặn script-kiddie.
+// Người dump APK 1 lần lấy được secret → forge HMAC. Phase 4 (Keystore) mới thật sự bịt.
+$APP_SECRET = 'FAKEPING_BY_MDUCDZ';
 
-    private static function initTables() {
-        $pdo = self::$pdo;
-        $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+$ip = getClientIp();
+if (!checkRateLimit('api_' . $ip, 30, 60)) {
+    http_response_code(429);
+    echo json_encode(['status' => 'error', 'message' => 'Quá nhiều yêu cầu. Vui lòng thử lại sau.']);
+    exit;
+}
 
-        // schema_version — guard migration race
-        if ($driver === 'pgsql') {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS schema_version (
-                id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-                version INTEGER NOT NULL DEFAULT 0
-            )");
-        } else {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS schema_version (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                version INTEGER NOT NULL DEFAULT 0
-            )");
-        }
-        // Đảm bảo có đúng 1 hàng
-        try {
-            $pdo->exec("INSERT INTO schema_version (id, version) VALUES (1, 0)");
-        } catch (PDOException $e) { /* already exists */ }
+// FIX: client mới gửi qua POST body (application/x-www-form-urlencoded).
+// Đọc $_GET trước đây khiến mọi field luôn rỗng với client đã ký — đọc $_POST trước, $_GET làm fallback.
+$key        = trim($_POST['key']    ?? $_GET['key']    ?? '');
+$hwid       = trim($_POST['hwid']   ?? $_GET['hwid']   ?? '');
+$app_client = strtolower(trim($_POST['app'] ?? $_GET['app'] ?? ''));
+$ts         = trim($_POST['ts']     ?? $_GET['ts']     ?? '');
+$nonce      = trim($_POST['nonce']  ?? $_GET['nonce']  ?? '');
+$reqSig     = trim($_POST['sig']    ?? $_GET['sig']    ?? '');
+$oldSession = trim($_POST['sid']    ?? $_GET['sid']    ?? '');
 
-        $current = (int)$pdo->query("SELECT version FROM schema_version WHERE id = 1")->fetchColumn();
-        if ($current >= self::SCHEMA_VERSION) {
-            return; // đã migrate xong, skip toàn bộ
-        }
+// ─── Phase 1: HMAC BẮT BUỘC ───────────────────────────────────────
+// Không còn fallback "không có sig thì vẫn cho qua".
+// Client cũ chưa ký sẽ fail → phải đẩy bản client mới trước hoặc đồng thời.
+if ($reqSig === '' || $ts === '' || $nonce === '') {
+    echo json_encode([
+        'status'  => 'error',
+        'message' => 'Request thiếu chữ ký.',
+        'p' => null,
+        's' => null
+    ]);
+    exit;
+}
 
-        // Base tables
-        if ($driver === 'pgsql') {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS keys (
-                id SERIAL PRIMARY KEY,
-                key TEXT UNIQUE NOT NULL,
-                prefix TEXT,
-                created_at TEXT NOT NULL,
-                expires_at TEXT,
-                hwid_limit INTEGER DEFAULT 1,
-                hwids TEXT DEFAULT '[]',
-                status TEXT DEFAULT 'active',
-                times_used INTEGER DEFAULT 0,
-                last_used_at TEXT,
-                note TEXT,
-                app TEXT DEFAULT 'other'
-            )");
-            $pdo->exec("CREATE TABLE IF NOT EXISTS bot_states (
-                chat_id TEXT PRIMARY KEY,
-                state TEXT,
-                data TEXT
-            )");
-            $pdo->exec("CREATE TABLE IF NOT EXISTS rate_limits (
-                id SERIAL PRIMARY KEY,
-                identifier TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )");
-            $pdo->exec("CREATE TABLE IF NOT EXISTS key_events (
-                id SERIAL PRIMARY KEY,
-                key_text TEXT,
-                hwid TEXT,
-                ip TEXT,
-                event TEXT NOT NULL,
-                detail TEXT,
-                created_at TEXT NOT NULL
-            )");
-            $pdo->exec("CREATE TABLE IF NOT EXISTS used_nonces (
-                nonce TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL
-            )");
-        } else {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key TEXT UNIQUE NOT NULL,
-                prefix TEXT,
-                created_at TEXT NOT NULL,
-                expires_at TEXT,
-                hwid_limit INTEGER DEFAULT 1,
-                hwids TEXT DEFAULT '[]',
-                status TEXT DEFAULT 'active',
-                times_used INTEGER DEFAULT 0,
-                last_used_at TEXT,
-                note TEXT,
-                app TEXT DEFAULT 'other'
-            )");
-            $pdo->exec("CREATE TABLE IF NOT EXISTS bot_states (
-                chat_id TEXT PRIMARY KEY,
-                state TEXT,
-                data TEXT
-            )");
-            $pdo->exec("CREATE TABLE IF NOT EXISTS rate_limits (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                identifier TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )");
-            $pdo->exec("CREATE TABLE IF NOT EXISTS key_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_text TEXT,
-                hwid TEXT,
-                ip TEXT,
-                event TEXT NOT NULL,
-                detail TEXT,
-                created_at TEXT NOT NULL
-            )");
-            $pdo->exec("CREATE TABLE IF NOT EXISTS used_nonces (
-                nonce TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL
-            )");
-        }
+$tsInt = (int)$ts;
+if (abs(time() - $tsInt) > 120) {
+    echo json_encode(['status' => 'error', 'message' => 'Request hết hạn.', 'p' => null, 's' => null]);
+    exit;
+}
+if (!consumeNonce($nonce)) {
+    echo json_encode(['status' => 'error', 'message' => 'Replay bị chặn.', 'p' => null, 's' => null]);
+    exit;
+}
+$canon  = $key . '|' . $hwid . '|' . $app_client . '|' . $ts . '|' . $nonce;
+$expect = hash_hmac('sha256', $canon, $APP_SECRET);
+if (!hash_equals($expect, strtolower($reqSig))) {
+    echo json_encode(['status' => 'error', 'message' => 'Chữ ký không hợp lệ.', 'p' => null, 's' => null]);
+    exit;
+}
 
-        // Column migrations — chỉ chạy khi version < SCHEMA_VERSION
-        $migrate = [
-            "ALTER TABLE keys ADD COLUMN app TEXT DEFAULT 'other'",
-            "ALTER TABLE keys ADD COLUMN bound_hwid TEXT",
-            "ALTER TABLE keys ADD COLUMN session_token TEXT",
-            "ALTER TABLE keys ADD COLUMN last_ip TEXT",
-            "ALTER TABLE keys ADD COLUMN last_seen_at TEXT",
-            "ALTER TABLE keys ADD COLUMN ban_reason TEXT",
-            "ALTER TABLE keys ADD COLUMN anomaly_count INTEGER DEFAULT 0",
+if (empty($key)) {
+    echo json_encode([
+        'status'  => 'error',
+        'message' => 'Thiếu Key!',
+        'p' => null,
+        's' => null
+    ]);
+    exit;
+}
+
+$result = validateKey($key, $hwid, ['old_session' => $oldSession]);
+
+$kd = getKeyByKey($key);
+$result['app'] = $kd ? getAppLabel($kd['app'] ?? '') : 'Unknown';
+
+// APP FILTER
+$app_from_db = strtolower(trim($kd['app'] ?? ''));
+$is_key_valid = false;
+if (is_array($result) && isset($result['status']) && strtolower($result['status']) === 'success') {
+    $is_key_valid = true;
+}
+if (isset($result['valid']) && $result['valid'] === true) {
+    $is_key_valid = true;
+}
+if ($is_key_valid && $kd && $app_from_db && $app_client) {
+    if ($app_from_db !== $app_client) {
+        $result = [
+            'status'  => 'error',
+            'message' => 'Key này chỉ dùng cho app ' . getAppLabel($app_from_db),
+            'valid'   => false
         ];
-        foreach ($migrate as $sql) {
-            try { $pdo->exec($sql); } catch (PDOException $e) { /* already exists */ }
-        }
-
-        // Phase 4: device hardware public keys
-        if ($driver === 'pgsql') {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS device_keys (
-                id SERIAL PRIMARY KEY,
-                key_text TEXT NOT NULL,
-                hwid TEXT NOT NULL,
-                pubkey TEXT NOT NULL,
-                strongbox INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE (key_text, hwid)
-            )");
-        } else {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS device_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_text TEXT NOT NULL,
-                hwid TEXT NOT NULL,
-                pubkey TEXT NOT NULL,
-                strongbox INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE (key_text, hwid)
-            )");
-        }
-
-        // Đánh dấu đã migrate — process khác thấy version đủ sẽ skip
-        $pdo->prepare("UPDATE schema_version SET version = ? WHERE id = 1")
-            ->execute([self::SCHEMA_VERSION]);
     }
 }
+
+// HMAC response payload
+$ok = 0;
+if (is_array($result)) {
+    if (isset($result['status']) && strtolower($result['status']) === 'success') $ok = 1;
+    if (isset($result['valid'])  && $result['valid'] === true) $ok = 1;
+    if (isset($result['ok'])     && (int)$result['ok'] === 1) $ok = 1;
+} elseif (is_bool($result)) {
+    $ok = $result ? 1 : 0;
+}
+
+$sid = $ok ? ($result['session'] ?? '') : '';
+$gk  = '';
+if ($ok && $sid !== '') {
+    $gk = substr(hash_hmac('sha256', 'gk|' . $sid, $APP_SECRET), 0, 32);
+}
+$payloadArr = [
+    'ok'  => $ok,
+    'exp' => time() + 300,
+    't'   => substr($key, 0, 4),
+    'sid' => $sid,
+    'gk'  => $gk,
+];
+$payload = json_encode($payloadArr, JSON_UNESCAPED_SLASHES);
+$sig     = hash_hmac('sha256', $payload, $APP_SECRET);
+
+$result['p'] = $payload;
+$result['s'] = $sig;
+
+echo json_encode($result);
