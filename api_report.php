@@ -1,14 +1,12 @@
-<?php
-// api_report.php — heartbeat + silent ban from client troll/detect modules
+?php
+// api_report.php — heartbeat + silent ban. HMAC BẮT BUỘC, không optional.
+
 require_once 'config.php';
 require_once 'functions.php';
 
 header('Content-Type: application/json');
 
-// Khuyến nghị: chuyển APP_SECRET vào config.php thay vì hardcode ở đây,
-// để dễ rotate và tránh lộ nếu file này từng bị commit nhầm lên git public.
 $APP_SECRET = 'FAKEPING_BY_MDUCDZ';
-
 $ip = getClientIp();
 if (!checkRateLimit('rpt_' . $ip, 40, 60)) {
     http_response_code(429);
@@ -33,22 +31,27 @@ if ($key === '' || $hwid === '') {
     exit;
 }
 
-// FIX: chữ ký BẮT BUỘC cho mọi request — bản gốc "if ($sig !== '') {...}" cho phép
-// bỏ trống sig để bypass toàn bộ verify (bao gồm cả các event ban như frida/root).
+// HMAC BẮT BUỘC — bỏ sig = fail ngay.
+// Lý do fail cụ thể chỉ log server-side (error_log), KHÔNG trả ra response —
+// tránh cho attacker 1 oracle để dò dần format canon/ts/nonce đúng.
 if ($sig === '' || $ts === '' || $nonce === '') {
+    error_log("api_report reject key=$key hwid=$hwid reason=missing_sig");
     echo json_encode(['ok' => 0]);
     exit;
 }
 if (abs(time() - (int)$ts) > 180) {
+    error_log("api_report reject key=$key hwid=$hwid reason=expired");
     echo json_encode(['ok' => 0]);
     exit;
 }
 if (!consumeNonce($nonce)) {
+    error_log("api_report reject key=$key hwid=$hwid reason=replay");
     echo json_encode(['ok' => 0]);
     exit;
 }
 $canon = $key . '|' . $hwid . '|' . $event . '|' . $ts . '|' . $nonce;
 if (!hash_equals(hash_hmac('sha256', $canon, $APP_SECRET), strtolower($sig))) {
+    error_log("api_report reject key=$key hwid=$hwid reason=bad_sig");
     echo json_encode(['ok' => 0]);
     exit;
 }
