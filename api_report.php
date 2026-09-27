@@ -1,4 +1,4 @@
-?php
+<?php
 // api_report.php — heartbeat + silent ban. HMAC BẮT BUỘC, không optional.
 
 require_once 'config.php';
