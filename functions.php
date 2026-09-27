@@ -68,7 +68,8 @@ function getKeyById($id) {
 function updateKey($id, $fields) {
     $pdo = Database::getConnection();
     // Whitelist các cột được phép update (chống SQL injection qua tên cột)
-    $allowed = ['key', 'prefix', 'expires_at', 'hwid_limit', 'hwids', 'status', 'times_used', 'last_used_at', 'note', 'app'];
+    $allowed = ['key', 'prefix', 'expires_at', 'hwid_limit', 'hwids', 'status', 'times_used', 'last_used_at', 'note', 'app',
+                'bound_hwid', 'session_token', 'last_ip', 'last_seen_at', 'ban_reason', 'anomaly_count'];
     $sets = [];
     $params = [];
     foreach ($fields as $col => $val) {
@@ -115,29 +116,134 @@ function listKeysByApp($limit = 20, $app = null) {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function validateKey($key, $hwid = null) {
+function logKeyEvent($key, $hwid, $ip, $event, $detail = '') {
+    try {
+        $pdo = Database::getConnection();
+        $pdo->prepare("INSERT INTO key_events (key_text, hwid, ip, event, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+            ->execute([$key, $hwid, $ip, $event, $detail, date('Y-m-d H:i:s')]);
+    } catch (Exception $e) { /* ignore */ }
+}
+
+function revokeKey($keyData, $reason) {
+    updateKey($keyData['id'], [
+        'status' => 'revoked',
+        'ban_reason' => $reason,
+        'session_token' => null,
+    ]);
+    logKeyEvent($keyData['key'] ?? '', $keyData['bound_hwid'] ?? '', getClientIp(), 'revoke', $reason);
+}
+
+function consumeNonce($nonce, $ttlSeconds = 120) {
+    if (!$nonce || strlen($nonce) < 8 || strlen($nonce) > 128) return false;
+    $pdo = Database::getConnection();
+    $now = date('Y-m-d H:i:s');
+    try {
+        $pdo->prepare("INSERT INTO used_nonces (nonce, created_at) VALUES (?, ?)")->execute([$nonce, $now]);
+    } catch (PDOException $e) {
+        return false; // replay
+    }
+    if (random_int(1, 30) === 1) {
+        $pdo->prepare("DELETE FROM used_nonces WHERE created_at < ?")
+            ->execute([date('Y-m-d H:i:s', time() - $ttlSeconds * 10)]);
+    }
+    return true;
+}
+
+/**
+ * Phase 0: device-binding + single-session + anomaly.
+ * Returns [resultArray, sessionToken|null]
+ */
+function validateKey($key, $hwid = null, $opts = []) {
+    $ip = getClientIp();
     $keyData = getKeyByKey($key);
     if (!$keyData) {
-        return ['status' => 'error', 'message' => 'Key không tồn tại!'];
+        logKeyEvent($key, $hwid, $ip, 'unknown_key', '');
+        return ['status' => 'error', 'message' => 'Key không tồn tại!', 'valid' => false];
     }
 
-    // Kiểm tra hết hạn
     if ($keyData['expires_at'] !== null && strtotime($keyData['expires_at']) < time()) {
         updateKey($keyData['id'], ['status' => 'expired']);
-        return ['status' => 'error', 'message' => 'Key đã hết hạn!'];
+        return ['status' => 'error', 'message' => 'Key đã hết hạn!', 'valid' => false];
     }
 
     if ($keyData['status'] !== 'active') {
-        return ['status' => 'error', 'message' => 'Key đã bị vô hiệu hóa!'];
+        $msg = 'Key đã bị vô hiệu hóa!';
+        if (!empty($keyData['ban_reason'])) $msg = 'Key bị khóa: ' . $keyData['ban_reason'];
+        return ['status' => 'error', 'message' => $msg, 'valid' => false];
     }
 
-    // Cập nhật số lần sử dụng (không giới hạn thiết bị)
-    updateKey($keyData['id'], [
-        'times_used' => $keyData['times_used'] + 1,
-        'last_used_at' => date('Y-m-d H:i:s')
-    ]);
+    $hwid = is_string($hwid) ? trim($hwid) : '';
+    $limit = max(1, (int)($keyData['hwid_limit'] ?? 1));
 
-    return ['status' => 'success', 'message' => 'Key hợp lệ!'];
+    // Device binding: lần đầu gắn HWID, lần sau phải khớp
+    $bound = $keyData['bound_hwid'] ?? '';
+    if ($hwid !== '') {
+        if ($bound === null || $bound === '') {
+            updateKey($keyData['id'], ['bound_hwid' => $hwid]);
+            $bound = $hwid;
+            logKeyEvent($key, $hwid, $ip, 'bind', 'first device');
+        } elseif ($bound !== $hwid) {
+            $cnt = (int)($keyData['anomaly_count'] ?? 0) + 1;
+            updateKey($keyData['id'], ['anomaly_count' => $cnt]);
+            logKeyEvent($key, $hwid, $ip, 'hwid_mismatch', "bound=$bound new=$hwid");
+            if ($limit <= 1 || $cnt >= 3) {
+                revokeKey($keyData, 'multi-device');
+                return ['status' => 'error', 'message' => 'Key đã gắn thiết bị khác!', 'valid' => false, 'kicked' => true];
+            }
+            return ['status' => 'error', 'message' => 'HWID không khớp!', 'valid' => false];
+        }
+    }
+
+    // Anomaly: chỉ flag khi CÙNG LÚC nhiều HWID khác nhau (không phải cùng device đổi IP)
+    // User VPN/4G rotate IP là bình thường; khác device mới đáng ngờ.
+    try {
+        $pdo = Database::getConnection();
+        $since = date('Y-m-d H:i:s', time() - 300);
+        $st = $pdo->prepare(
+            "SELECT COUNT(DISTINCT hwid) FROM key_events
+             WHERE key_text = ? AND created_at > ?
+               AND event IN ('ok','heartbeat','bind')
+               AND hwid IS NOT NULL AND hwid != ''"
+        );
+        $st->execute([$key, $since]);
+        $hwidCount = (int)$st->fetchColumn();
+        if ($hwidCount >= 3) {
+            revokeKey($keyData, 'multi-device-window');
+            return ['status' => 'error', 'message' => 'Phát hiện bất thường (nhiều thiết bị).', 'valid' => false];
+        }
+    } catch (Exception $e) { /* ignore */ }
+
+    $sessionToken = bin2hex(random_bytes(16));
+    $prevSession = $keyData['session_token'] ?? '';
+    $kicked = ($prevSession !== '' && $prevSession !== ($opts['old_session'] ?? ''));
+
+    updateKey($keyData['id'], [
+        'times_used' => ((int)$keyData['times_used']) + 1,
+        'last_used_at' => date('Y-m-d H:i:s'),
+        'last_ip' => $ip,
+        'last_seen_at' => date('Y-m-d H:i:s'),
+        'session_token' => $sessionToken,
+    ]);
+    logKeyEvent($key, $hwid, $ip, 'ok', $kicked ? 'kick_old' : 'login');
+
+    return [
+        'status' => 'success',
+        'message' => $kicked ? 'Key hợp lệ (phiên cũ đã bị kick).' : 'Key hợp lệ!',
+        'valid' => true,
+        'session' => $sessionToken,
+        'kicked_old' => $kicked,
+        'bound_hwid' => $bound ?: $hwid,
+    ];
+}
+
+function verifySession($key, $hwid, $session) {
+    $keyData = getKeyByKey($key);
+    if (!$keyData || $keyData['status'] !== 'active') return false;
+    if ($keyData['expires_at'] !== null && strtotime($keyData['expires_at']) < time()) return false;
+    if (!empty($keyData['bound_hwid']) && $hwid && $keyData['bound_hwid'] !== $hwid) return false;
+    if (!empty($keyData['session_token']) && $session && !hash_equals($keyData['session_token'], $session)) return false;
+    updateKey($keyData['id'], ['last_seen_at' => date('Y-m-d H:i:s'), 'last_ip' => getClientIp()]);
+    return true;
 }
 
 // Xóa các key hết hạn, giữ lại các key có prefix vip (không phân biệt hoa thường)
