@@ -27,6 +27,15 @@ $ts         = trim($_POST['ts']     ?? $_GET['ts']     ?? '');
 $nonce      = trim($_POST['nonce']  ?? $_GET['nonce']  ?? '');
 $reqSig     = trim($_POST['sig']    ?? $_GET['sig']    ?? '');
 $oldSession = trim($_POST['sid']    ?? $_GET['sid']    ?? '');
+$apkSig     = strtolower(trim($_POST['apk_sig'] ?? $_GET['apk_sig'] ?? ''));
+
+// ★ Cert APK allowlist (SHA-256 hex, không dấu ':')
+// AndroidIDE: keytool -list -v -keystore release-key.jks -alias fakeping_release
+// Rỗng = chưa bật (dev). Thêm hash release (và debug nếu cần) rồi deploy.
+$ALLOWED_APK_SIGS = [
+    '81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8', // debug app-debug.apk
+    // 'release_sha256_here',
+];
 
 // ─── Phase 1: HMAC BẮT BUỘC ───────────────────────────────────────
 // Không còn fallback "không có sig thì vẫn cho qua".
@@ -55,6 +64,19 @@ $expect = hash_hmac('sha256', $canon, $APP_SECRET);
 if (!hash_equals($expect, strtolower($reqSig))) {
     echo json_encode(['status' => 'error', 'message' => 'Chữ ký không hợp lệ.', 'p' => null, 's' => null]);
     exit;
+}
+
+// ─── APK signature (chống re-sign trên máy sạch) ─────────────────
+if (count($ALLOWED_APK_SIGS) > 0) {
+    if ($apkSig === '' || !in_array($apkSig, array_map('strtolower', $ALLOWED_APK_SIGS), true)) {
+        echo json_encode([
+            'status'  => 'error',
+            'message' => 'APK không hợp lệ.',
+            'p' => null,
+            's' => null
+        ]);
+        exit;
+    }
 }
 
 if (empty($key)) {
