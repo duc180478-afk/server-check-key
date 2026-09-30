@@ -67,7 +67,7 @@ button:hover { filter:brightness(1.08); }
   <form method="post">
     <?= csrfField() ?>
     <label>Tài khoản</label>
-    <input name="username" autocomplete="username" placeholder="admin hoặc noa" required>
+    <input name="username" autocomplete="username" placeholder="admin hoặc reseller" required>
     <label>Mật khẩu</label>
     <input type="password" name="password" autocomplete="current-password" required>
     <button type="submit">Đăng nhập</button>
