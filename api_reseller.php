@@ -91,6 +91,7 @@ if ($action === 'list') {
 
 // create — chỉ reseller (hoặc admin)
 $app = strtolower(trim((string)$g('app', 'fakelag')));
+if ($role === 'reseller') { $app = 'locmod'; }
 $mode = (strtolower((string)$g('key_mode', 'random')) === 'custom') ? 'custom' : 'random';
 $prefix = trim((string)$g('prefix', $g('key', 'FLFF')));
 $daysIn = $g('days', '');
