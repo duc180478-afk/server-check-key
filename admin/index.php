@@ -6,6 +6,20 @@ require_once __DIR__ . '/admin_auth.php';
 require_once __DIR__ . '/key_helpers.php';
 adminRequireLogin();
 adminUsersInit();
+@date_default_timezone_set('Asia/Ho_Chi_Minh');
+function fmtExp($s) {
+    if ($s === null || $s === '') return '∞';
+    @date_default_timezone_set('Asia/Ho_Chi_Minh');
+    $ts = strtotime($s);
+    if ($ts === false) return htmlspecialchars((string)$s);
+    $left = $ts - time();
+    $label = date('d/m/Y H:i', $ts);
+    if ($left <= 0) return $label . ' (hết hạn)';
+    $h = (int)floor($left / 3600);
+    $m = (int)floor(($left % 3600) / 60);
+    return $label . " (còn {$h}h{$m}m)";
+}
+
 
 $isReseller = adminIsReseller();
 $name = adminUsername();
@@ -105,23 +119,21 @@ Chỉ trả / gắn key của đúng reseller đó (created_by).
 <div style="overflow:auto">
 <table>
 <tr><th>Key</th><th>App</th><th>By</th><th>Limit</th><th>Hết hạn</th><th>Status</th>
-<?php if(!$isReseller): ?><th></th><?php endif; ?></tr>
+<th></th></tr>
 <?php foreach ($keys as $r): ?>
 <tr>
 <td class="mono"><?= htmlspecialchars($r['key']) ?></td>
 <td><?= htmlspecialchars($r['app']??'') ?></td>
 <td><?= htmlspecialchars($r['created_by']??'') ?></td>
 <td><?= (int)($r['hwid_limit']??1) ?></td>
-<td><?= htmlspecialchars($r['expires_at']??'∞') ?></td>
+<td><?= fmtExp($r['expires_at'] ?? null) ?></td>
 <td><?= htmlspecialchars($r['status']??'') ?></td>
-<?php if(!$isReseller): ?>
 <td>
-<form method="post" action="actions.php" style="display:inline" onsubmit="return confirm('Xóa?')">
+<form method="post" action="actions.php" style="display:inline" onsubmit="return confirm('Xóa key này?')">
 <?= csrfField() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
 <button type="submit" style="width:auto;padding:4px 8px;background:#7f1d1d">Xóa</button>
 </form>
 </td>
-<?php endif; ?>
 </tr>
 <?php endforeach; ?>
 </table>
