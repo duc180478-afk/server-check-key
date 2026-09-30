@@ -1,105 +1,91 @@
 <?php
 session_start();
-require_once '../config.php';
-require_once '../functions.php';
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../functions.php';
+require_once __DIR__ . '/admin_auth.php';
 
-if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-    header('Location: login.php');
-    exit;
-}
+adminRequireLogin();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: index.php');
     exit;
 }
-
-// Chống CSRF
 if (!verifyCsrfToken($_POST['csrf_token'] ?? '')) {
-    header('Location: index.php?msg=' . urlencode('Phiên không hợp lệ (CSRF)!'));
+    header('Location: index.php?msg=' . urlencode('CSRF invalid'));
     exit;
 }
 
- $action = $_POST['action'] ?? '';
- $msg = '';
- $returnApp = $_POST['return_app'] ?? 'all';
-if (!isset(SYSTEM_APPS[$returnApp]) && $returnApp !== 'all') {
-    $returnApp = 'all';
+$action = $_POST['action'] ?? '';
+$role = adminRole();
+$resellerBlocked = ['delete', 'extend', 'toggle_status'];
+if ($role === 'reseller' && in_array($action, $resellerBlocked, true)) {
+    header('Location: index.php?msg=' . urlencode('Reseller không có quyền.'));
+    exit;
 }
- $returnUrl = 'index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : '');
+
+$msg = '';
+$createdKeys = [];
 
 switch ($action) {
     case 'create_single':
-        $app = $_POST['app'] ?? 'other';
-        if (!isset(SYSTEM_APPS[$app])) $app = 'other';
-        // Prefix TÙY Ý theo admin nhập (mặc định gợi ý theo app)
-        $prefix = strtoupper(trim($_POST['prefix'] ?? ''));
-        if ($prefix === '') $prefix = SYSTEM_APPS[$app]['default_prefix'];
-        $daysRaw = trim($_POST['days'] ?? '');
-        $days = ($daysRaw === '') ? null : intval($daysRaw);
-        if ($days !== null && $days <= 0) {
-            $msg = 'Số ngày phải lớn hơn 0 (bỏ trống = vĩnh viễn).';
-            header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
-            exit;
-        }
-        $limit = max(1, intval($_POST['hwid_limit'] ?? 1));
-        $note = trim($_POST['note'] ?? '');
-        $key = createKey($prefix, $days, $limit, $note, $app);
-        $msg = "Đã tạo key [" . SYSTEM_APPS[$app]['label'] . "]: $key";
-        header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
-        exit;
-
     case 'create_batch':
-        $app = $_POST['app'] ?? 'other';
-        if (!isset(SYSTEM_APPS[$app])) $app = 'other';
-        $prefix = strtoupper(trim($_POST['prefix'] ?? ''));
-        if ($prefix === '') $prefix = SYSTEM_APPS[$app]['default_prefix'];
-        $count = max(1, min(100, intval($_POST['count'] ?? 1)));
-        $daysRaw = trim($_POST['days'] ?? '');
-        $days = ($daysRaw === '') ? null : intval($daysRaw);
-        if ($days !== null && $days <= 0) {
-            $msg = 'Số ngày phải lớn hơn 0 (bỏ trống = vĩnh viễn).';
-            header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
-            exit;
-        }
-        $limit = max(1, intval($_POST['hwid_limit'] ?? 1));
+        $app = $_POST['app'] ?? 'fakelag';
+        if (defined('SYSTEM_APPS') && !isset(SYSTEM_APPS[$app])) $app = 'fakelag';
+        $prefix = preg_replace('/[^A-Za-z0-9]/', '', $_POST['prefix'] ?? 'FLFF');
+        if ($prefix === '') $prefix = 'KEY';
+        $daysIn = trim($_POST['days'] ?? '');
+        $days = ($daysIn === '') ? null : max(1, (int)$daysIn);
+        $limit = max(1, min(9999, (int)($_POST['hwid_limit'] ?? 1)));
         $note = trim($_POST['note'] ?? '');
-        $keys = createKeyBatch($prefix, $count, $days, $limit, $note, $app);
-        $msg = "Đã tạo " . count($keys) . " key [" . SYSTEM_APPS[$app]['label'] . "] (prefix $prefix).";
-        header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
-        exit;
-
-    case 'delete':
-        $id = intval($_POST['id'] ?? 0);
-        deleteKey($id);
-        $msg = "Đã xóa key ID $id";
+        $count = ($action === 'create_batch') ? max(1, min(50, (int)($_POST['count'] ?? 1))) : 1;
+        if (adminIsReseller()) {
+            $note = trim($note . ' [by:' . ($_SESSION['admin_username'] ?? 'reseller') . ']');
+        }
+        try {
+            if ($count === 1) {
+                $createdKeys[] = createKey($prefix, $days, $limit, $note, $app);
+            } else {
+                $createdKeys = createKeyBatch($prefix, $count, $days, $limit, $note, $app);
+            }
+            $_SESSION['flash_keys'] = $createdKeys;
+            $msg = 'Đã tạo ' . count($createdKeys) . ' key.';
+        } catch (Throwable $e) {
+            $msg = 'Lỗi tạo key.';
+        }
         break;
 
-    case 'extend':
-        $id = intval($_POST['id'] ?? 0);
-        $days = intval($_POST['days'] ?? 0);
-        $keyData = getKeyById($id);
-        if ($keyData && $days > 0) {
-            // Gia hạn cộng dồn: cộng vào hạn cũ nếu key chưa hết hạn
-            $currentExpire = $keyData['expires_at'] ? strtotime($keyData['expires_at']) : 0;
-            $baseTime = ($currentExpire > time()) ? $currentExpire : time();
-            $newExpire = date('Y-m-d H:i:s', $baseTime + $days * 86400);
-            updateKey($id, ['expires_at' => $newExpire, 'status' => 'active']);
-            $msg = "Đã gia hạn key {$keyData['key']} thêm $days ngày. Hạn mới: $newExpire";
-        } else {
-            $msg = 'Số ngày không hợp lệ hoặc key không tồn tại.';
+    case 'delete':
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id > 0) {
+            $pdo = Database::getConnection();
+            $pdo->prepare('DELETE FROM keys WHERE id = ?')->execute([$id]);
+            $msg = 'Đã xóa key #' . $id;
         }
         break;
 
     case 'toggle_status':
-        $id = intval($_POST['id'] ?? 0);
-        $keyData = getKeyById($id);
-        if ($keyData) {
-            $newStatus = $keyData['status'] === 'active' ? 'disabled' : 'active';
-            updateKey($id, ['status' => $newStatus]);
-            $msg = "Đã chuyển trạng thái key {$keyData['key']} thành $newStatus.";
+        $id = (int)($_POST['id'] ?? 0);
+        $row = getKeyById($id);
+        if ($row) {
+            $next = ($row['status'] === 'active') ? 'disabled' : 'active';
+            updateKey($id, ['status' => $next]);
+            $msg = "Key #{$id} → {$next}";
+        }
+        break;
+
+    case 'extend':
+        $id = (int)($_POST['id'] ?? 0);
+        $add = max(1, (int)($_POST['days'] ?? 1));
+        $row = getKeyById($id);
+        if ($row) {
+            $base = !empty($row['expires_at']) ? strtotime($row['expires_at']) : time();
+            if ($base < time()) $base = time();
+            $newExp = date('Y-m-d H:i:s', $base + $add * 86400);
+            updateKey($id, ['expires_at' => $newExp, 'status' => 'active']);
+            $msg = "Gia hạn #{$id} +{$add} ngày";
         }
         break;
 }
 
-header('Location: index.php?msg=' . urlencode($msg) . ($returnApp !== 'all' ? '&app=' . urlencode($returnApp) : ''));
+header('Location: index.php?msg=' . urlencode($msg));
 exit;
