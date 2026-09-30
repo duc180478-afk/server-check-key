@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !verifyCsrfToken($_POST['csrf_token
 }
 
 $action = $_POST['action'] ?? '';
-if (adminIsReseller() && in_array($action, ['delete','extend','toggle_status'], true)) {
+if (adminIsReseller() && in_array($action, ['extend','toggle_status'], true)) {
     header('Location: index.php?msg=' . urlencode('Reseller không có quyền'));
     exit;
 }
@@ -44,8 +44,15 @@ if ($action === 'create_single' || $action === 'create_batch') {
 } elseif ($action === 'delete') {
     $id = (int)($_POST['id'] ?? 0);
     if ($id > 0) {
-        Database::getConnection()->prepare('DELETE FROM keys WHERE id=?')->execute([$id]);
-        $msg = 'Đã xóa #' . $id;
+        $row = getKeyById($id);
+        if (!$row) {
+            $msg = 'Key không tồn tại';
+        } elseif (adminIsReseller() && ($row['created_by'] ?? '') !== adminUsername()) {
+            $msg = 'Chỉ xóa key của bạn';
+        } else {
+            Database::getConnection()->prepare('DELETE FROM keys WHERE id=?')->execute([$id]);
+            $msg = 'Đã xóa #' . $id;
+        }
     }
 } elseif ($action === 'toggle_status') {
     $id = (int)($_POST['id'] ?? 0);
