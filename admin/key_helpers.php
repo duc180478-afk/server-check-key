@@ -1,6 +1,12 @@
 <?php
+/** Timezone VN — tránh hiện UTC làm tưởng thiếu 24h */
+function adminEnsureTz() {
+    @date_default_timezone_set('Asia/Ho_Chi_Minh');
+}
+
 /** Tạo key: random suffix HOẶC đúng chuỗi custom */
 function createKeyFlexible($prefixOrKey, $expiresDays, $hwidLimit, $note, $app, $mode, $createdBy = '') {
+    adminEnsureTz();
     $pdo = Database::getConnection();
     $prefixOrKey = trim($prefixOrKey);
     if ($prefixOrKey === '') throw new InvalidArgumentException('Thiếu prefix/key');
