@@ -29,6 +29,7 @@ function generateRandomString($length = 10) {
 }
 
 function createKey($prefix, $expiresDays = null, $hwidLimit = 1, $note = '', $app = 'other') {
+    @date_default_timezone_set('Asia/Ho_Chi_Minh');
     $pdo = Database::getConnection();
     $random = generateRandomString(12);
     $key = $prefix . '-' . $random;
