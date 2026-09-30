@@ -1,11 +1,9 @@
 <?php
-/**
- * Multi-user admin/reseller
- * - admin: full quyền
- * - reseller: chỉ tạo key (single/batch)
- */
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
+
+/** Token cứng để reseller tự đăng ký tài khoản */
+define('RESELLER_REGISTER_TOKEN', 'RESELLER');
 
 function adminUsersInit() {
     static $done = false;
@@ -31,43 +29,65 @@ function adminUsersInit() {
             created_at TEXT NOT NULL
         )");
     }
-    // Seed reseller Noa nếu chưa có
-    $stmt = $pdo->prepare("SELECT id FROM admin_users WHERE username = ?");
-    $stmt->execute(['noa']);
-    if (!$stmt->fetch()) {
-        // password: Noa@2026  — đổi sau khi giao
-        $hash = '$2y$10$loIKvtWvOfbZX/cqmjuSl.xngqRDlMNNSj7vkduoEcqX/2wn4wUtW';
-        $ins = $pdo->prepare("INSERT INTO admin_users (username, password_hash, role, active, created_at) VALUES (?, ?, 'reseller', 1, ?)");
-        $ins->execute(['noa', $hash, date('Y-m-d H:i:s')]);
-    }
+    // Đảm bảo cột created_by trên keys (gắn key với reseller)
+    try {
+        if ($driver === 'pgsql') {
+            $pdo->exec("ALTER TABLE keys ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT ''");
+        } else {
+            // SQLite: thử add, ignore nếu đã có
+            @$pdo->exec("ALTER TABLE keys ADD COLUMN created_by TEXT DEFAULT ''");
+        }
+    } catch (Throwable $e) { /* already exists */ }
     $done = true;
 }
 
 function adminTryLogin($username, $password) {
     adminUsersInit();
     $username = strtolower(trim($username));
+    if ($username === '') return ['ok' => false];
 
-    // 1) Bảng admin_users
-    if ($username !== '') {
-        $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("SELECT * FROM admin_users WHERE username = ? AND active = 1 LIMIT 1");
-        $stmt->execute([$username]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row && password_verify($password, $row['password_hash'])) {
-            return [
-                'ok' => true,
-                'username' => $row['username'],
-                'role' => ($row['role'] === 'admin') ? 'admin' : 'reseller',
-            ];
-        }
+    $pdo = Database::getConnection();
+    $stmt = $pdo->prepare("SELECT * FROM admin_users WHERE username = ? AND active = 1 LIMIT 1");
+    $stmt->execute([$username]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($row && password_verify($password, $row['password_hash'])) {
+        $role = ($row['role'] === 'admin') ? 'admin' : 'reseller';
+        return ['ok' => true, 'username' => $row['username'], 'role' => $role];
     }
 
-    // 2) Admin gốc (chỉ mật khẩu cũ, username để trống hoặc "admin")
-    if (($username === '' || $username === 'admin') && password_verify($password, ADMIN_PASSWORD_HASH)) {
+    // Admin gốc (config) — username admin
+    if ($username === 'admin' && defined('ADMIN_PASSWORD_HASH') && password_verify($password, ADMIN_PASSWORD_HASH)) {
         return ['ok' => true, 'username' => 'admin', 'role' => 'admin'];
     }
-
     return ['ok' => false];
+}
+
+/** Reseller tự đăng ký: bắt buộc token = RESELLER */
+function adminRegisterReseller($username, $password, $token) {
+    adminUsersInit();
+    if (!hash_equals(RESELLER_REGISTER_TOKEN, (string)$token)) {
+        return ['ok' => false, 'message' => 'Token đăng ký không đúng'];
+    }
+    $username = strtolower(trim($username));
+    if (!preg_match('/^[a-z0-9_]{3,32}$/', $username)) {
+        return ['ok' => false, 'message' => 'Username 3-32 ký tự (a-z, 0-9, _)'];
+    }
+    if ($username === 'admin') {
+        return ['ok' => false, 'message' => 'Không dùng tên admin'];
+    }
+    if (strlen($password) < 6) {
+        return ['ok' => false, 'message' => 'Mật khẩu tối thiểu 6 ký tự'];
+    }
+    $pdo = Database::getConnection();
+    $chk = $pdo->prepare("SELECT id FROM admin_users WHERE username = ?");
+    $chk->execute([$username]);
+    if ($chk->fetch()) {
+        return ['ok' => false, 'message' => 'Username đã tồn tại'];
+    }
+    $hash = password_hash($password, PASSWORD_DEFAULT);
+    $ins = $pdo->prepare("INSERT INTO admin_users (username, password_hash, role, active, created_at) VALUES (?, ?, 'reseller', 1, ?)");
+    $ins->execute([$username, $hash, date('Y-m-d H:i:s')]);
+    return ['ok' => true, 'message' => 'Tạo tài khoản reseller thành công', 'username' => $username];
 }
 
 function adminRequireLogin() {
@@ -76,15 +96,7 @@ function adminRequireLogin() {
         exit;
     }
 }
-
-function adminRole() {
-    return $_SESSION['admin_role'] ?? 'admin';
-}
-
-function adminIsReseller() {
-    return adminRole() === 'reseller';
-}
-
-function adminIsAdmin() {
-    return adminRole() === 'admin';
-}
+function adminRole() { return $_SESSION['admin_role'] ?? 'admin'; }
+function adminIsReseller() { return adminRole() === 'reseller'; }
+function adminIsAdmin() { return adminRole() === 'admin'; }
+function adminUsername() { return $_SESSION['admin_username'] ?? ''; }
