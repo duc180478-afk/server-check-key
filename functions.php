@@ -7,6 +7,10 @@ require_once 'db.php';
 // Thêm app mới ở đây — mọi nơi tự cập nhật theo
 define('SYSTEM_APPS', [
     'fakelag' => ['label' => 'FakeLag',  'default_prefix' => 'FLFF'],
+    'locmod' => [
+        'label' => 'Loc Mod Proxy',
+        'default_prefix' => 'LOCMOD',
+    ],
     'proxy'   => ['label' => 'Proxy FF', 'default_prefix' => 'PRX'],
 ]);
 
