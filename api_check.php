@@ -92,6 +92,12 @@ if (empty($key)) {
 $result = validateKey($key, $hwid, ['old_session' => $oldSession]);
 
 $kd = getKeyByKey($key);
+@date_default_timezone_set('Asia/Ho_Chi_Minh');
+if (is_array($result) && $kd) {
+    $exp = $kd['expires_at'] ?? null;
+    $result['expires_at'] = $exp;
+    $result['expires_at_vn'] = $exp ? date('d/m/Y H:i', strtotime($exp)) : 'Vĩnh viễn';
+}
 $result['app'] = $kd ? getAppLabel($kd['app'] ?? '') : 'Unknown';
 
 // APP FILTER
