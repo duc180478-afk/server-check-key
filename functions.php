@@ -11,7 +11,7 @@ define('SYSTEM_APPS', [
         'label' => 'Loc Mod Proxy',
         'default_prefix' => 'LOCMOD',
     ],
-    'proxy'   => ['label' => 'Proxy FF', 'default_prefix' => 'PRX'],
+    'proxy'   => ['label' => 'AOV ESP', 'default_prefix' => 'PRX'],
 ]);
 
 // Lấy tên app hiển thị từ giá trị cột app
