@@ -34,7 +34,8 @@ $apkSig     = strtolower(trim($_POST['apk_sig'] ?? $_GET['apk_sig'] ?? ''));
 // Rỗng = chưa bật (dev). Thêm hash release (và debug nếu cần) rồi deploy.
 $ALLOWED_APK_SIGS = [
     '81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8',
-'81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8', // debug app-debug.apk
+'81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8',
+'a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc', // debug app-debug.apk
     // 'release_sha256_here',
 ];
 
