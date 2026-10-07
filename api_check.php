@@ -33,7 +33,8 @@ $apkSig     = strtolower(trim($_POST['apk_sig'] ?? $_GET['apk_sig'] ?? ''));
 // AndroidIDE: keytool -list -v -keystore release-key.jks -alias fakeping_release
 // Rỗng = chưa bật (dev). Thêm hash release (và debug nếu cần) rồi deploy.
 $ALLOWED_APK_SIGS = [
-    '81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8', // debug app-debug.apk
+    '81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8',
+'81:20:9E:EA:A0:B2:0B:9C:B6:14:23:1A:B5:0C:D0:95:E3:C1:BA:5E:85:C0:4F:D1:60:AF:F6:C9:00:8C:24:F8' // debug app-debug.apk
     // 'release_sha256_here',
 ];
 
