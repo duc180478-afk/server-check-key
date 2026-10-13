@@ -11,6 +11,12 @@ header('Content-Type: application/json');
 // Người dump APK 1 lần lấy được secret → forge HMAC. Phase 4 (Keystore) mới thật sự bịt.
 $APP_SECRET = 'FAKEPING_BY_MDUCDZ';
 
+// FF product family: FakePing (fakelag) + LocMod share keys. AOV ESP = proxy only.
+function is_ff_family($app) {
+    $a = strtolower(trim((string)$app));
+    return ($a === 'fakelag' || $a === 'locmod');
+}
+
 $ip = getClientIp();
 if (!checkRateLimit('api_' . $ip, 30, 60)) {
     http_response_code(429);
@@ -112,12 +118,17 @@ if (isset($result['valid']) && $result['valid'] === true) {
     $is_key_valid = true;
 }
 if ($is_key_valid && $kd && $app_from_db && $app_client) {
-    if ($app_from_db !== $app_client) {
+    $db_ff = is_ff_family($app_from_db);
+    $cli_ff = is_ff_family($app_client);
+    // FakePing <-> LocMod: same product, keys interchangeable.
+    // AOV (proxy) and anything else: strict match only.
+    if (!($db_ff && $cli_ff) && $app_from_db !== $app_client) {
         $result = [
             'status'  => 'error',
             'message' => 'Key này chỉ dùng cho app ' . getAppLabel($app_from_db),
             'valid'   => false
         ];
+        $is_key_valid = false;
     }
 }
 
@@ -136,6 +147,34 @@ $gk  = '';
 if ($ok && $sid !== '') {
     $gk = substr(hash_hmac('sha256', 'gk|' . $sid, $APP_SECRET), 0, 32);
 }
+
+// Decode profile for FF family only (FakePing/LocMod). AOV (proxy) gets none.
+$ok_for_profile = false;
+if (is_array($result)) {
+    if (isset($result['status']) && strtolower($result['status']) === 'success') $ok_for_profile = true;
+    if (isset($result['valid']) && $result['valid'] === true) $ok_for_profile = true;
+}
+if ($ok_for_profile && is_ff_family($app_client)) {
+    $vu = time() + 3600;
+    if (!empty($kd['expires_at'])) {
+        $te = strtotime($kd['expires_at']);
+        if ($te && $te > time()) $vu = $te;
+    }
+    // Cap single response window at 24h; heartbeat re-arms.
+    if ($vu > time() + 86400) $vu = time() + 86400;
+    $result['profile'] = [
+        'valid_until' => $vu,
+        'product'     => 'ff',
+        'chain'       => [
+            'max_len'           => 1400,
+            'max_records'       => 64,
+            'min_record_bytes'  => 8,
+            'min_record_x'      => 10000,
+            'max_entity_id'     => 64,
+        ],
+    ];
+}
+
 $payloadArr = [
     'ok'  => $ok,
     'exp' => time() + 300,
