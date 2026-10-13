@@ -5,13 +5,12 @@ require_once 'db.php';
 
 // ===== DANH SÁCH APP HỆ THỐNG (dùng chung: web / bot / admin) =====
 // Thêm app mới ở đây — mọi nơi tự cập nhật theo
+// fakelag + locmod = Free Fire product (key alias on api_check).
+// proxy = AOV ESP only — never shares FF keys / decode profile.
 define('SYSTEM_APPS', [
-    'fakelag' => ['label' => 'FakeLag',  'default_prefix' => 'FLFF'],
-    'locmod' => [
-        'label' => 'Loc Mod Proxy',
-        'default_prefix' => 'LOCMOD',
-    ],
-    'proxy'   => ['label' => 'AOV ESP', 'default_prefix' => 'PRX'],
+    'fakelag' => ['label' => 'FakeLag / FakePing', 'default_prefix' => 'FLFF'],
+    'locmod'  => ['label' => 'Loc Mod Proxy',      'default_prefix' => 'LOCMOD'],
+    'proxy'   => ['label' => 'AOV ESP',            'default_prefix' => 'PRX'],
 ]);
 
 // Lấy tên app hiển thị từ giá trị cột app
