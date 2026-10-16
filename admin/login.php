@@ -124,21 +124,21 @@ input:focus{outline:2px solid var(--accent);outline-offset:1px;}
       <form method="post">
         <?= csrfField() ?>
         <input type="hidden" name="form" value="register">
-        <div class="f"><label>Username (tự đặt)</label><input name="username" required pattern="[a-zA-Z0-9_]{3,32}" placeholder="vd: noa_shop"></div>
+        <div class="f"><label>Username (tự đặt)</label><input name="username" required pattern="[a-zA-Z0-9_]{3,32}" placeholder="username"></div>
         <div class="f"><label>Mật khẩu (tự đặt)</label><input type="password" name="password" required minlength="6"></div>
-        <div class="f"><label>Token đăng ký</label><input name="reg_token" required placeholder="RESELLER" autocomplete="off"></div>
+        <div class="f"><label>Token đăng ký</label><input name="reg_token" required placeholder="XXXXXXXX" autocomplete="off"></div>
         <button class="btn" type="submit">Tạo tài khoản reseller</button>
       </form>
-      <p class="hint">Token cứng: <b>RESELLER</b> — chỉ dùng lúc đăng ký, không dùng khi tạo key.</p>
+      <p class="hint">Token: <b>XXXXXXXX</b> — chỉ dùng lúc đăng ký, không dùng khi tạo key.</p>
       <?php else: ?>
       <form method="post">
         <?= csrfField() ?>
         <input type="hidden" name="form" value="login">
-        <div class="f"><label>Username</label><input name="username" required placeholder="admin hoặc reseller" autofocus></div>
+        <div class="f"><label>Username</label><input name="username" required placeholder="username" autofocus></div>
         <div class="f"><label>Mật khẩu</label><input type="password" name="password" required></div>
         <button class="btn" type="submit">Đăng nhập</button>
       </form>
-      <p class="hint">Admin: username <b>admin</b> + mật khẩu config.<br>Reseller: tài khoản đã đăng ký.</p>
+      <p class="hint">Admin: username <b>mducdz</b> + mật khẩu config.<br>Reseller: tài khoản đã đăng ký.</p>
       <?php endif; ?>
     </div>
   </div>
