@@ -206,7 +206,6 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
   .field{grid-template-columns:1fr; gap:9px; padding:15px 16px;} .foot{align-items:stretch; flex-direction:column;} .gen{width:100%;}
   .modal-body{padding:24px 18px;} .modal-body h3{font-size:22px;}
 }
-@media(prefers-reduced-motion:reduce){ *,*::before,*::after{animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important;} }
 </style>
 </head>
 <body>
