@@ -11,8 +11,8 @@ foreach ($KEYGEN_DURATIONS as $durationKey => $durationConfig) {
 }
 
 // ===== Telegram =====
- $TG_ADMIN_URL = 'https://t.me/your_admin_here';
- $TG_GROUP_URL = 'https://t.me/your_channel_here';
+ $TG_ADMIN_URL = 'https://t.me/Ducducdz';
+ $TG_GROUP_URL = 'https://t.me/papaofskidisducduc';
 ?>
 <!DOCTYPE html>
 <html lang="vi">
