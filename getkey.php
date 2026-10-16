@@ -25,14 +25,12 @@ foreach ($KEYGEN_DURATIONS as $durationKey => $durationConfig) {
   --paper:#F6F4EE; --card:#FCFBF7; --ink:#191B17; --ink-soft:#4C4A42;
   --grid:#DEDAD0; --accent:#2B4FD8; --accent-ink:#F6F4EE; --amber:#C4780A;
   --line:#191B17; color-scheme:light;
-  --glint-fill:rgba(255,255,255,.5); --glint-edge:rgba(25,27,23,.12);
   padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
 }
 @media(prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     --paper:#15160F; --card:#1C1D15; --ink:#EDEAE0; --ink-soft:#A6A295;
     --grid:#2B2C22; --accent:#7D95F5; --accent-ink:#15160F; --amber:#E0A03E; --line:#EDEAE0;
-    --glint-fill:rgba(255,255,255,.2); --glint-edge:rgba(237,234,224,.18);
     color-scheme:dark;
   }
 }
@@ -93,37 +91,38 @@ h1{font-size:clamp(48px,9vw,96px); font-weight:500; margin:0; line-height:.98; l
 .sub a{color:var(--accent); text-decoration:underline; text-underline-offset:3px;}
 .sub a:hover{color:var(--ink);}
 
-/* layout */
+/* layout — NOTE: .field/.foot/.card-head intentionally have NO z-index (same as the
+   HTML preview) so the open .dd-list (z-index:30) floats above the rows below it. */
 main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
-.card{position:relative; background:var(--card); border:1.3px solid var(--line); box-shadow:7px 7px 0 var(--line); margin-top:18px; transform:translate(-2px,-2px); transition:transform .18s ease, box-shadow .18s ease;}
+.card{position:relative; z-index:1; background:var(--card); border:1.3px solid var(--line); box-shadow:7px 7px 0 var(--line); margin-top:18px; transform:translate(-2px,-2px); transition:transform .18s ease, box-shadow .18s ease;}
 .card:hover{transform:translate(0,0); box-shadow:4px 4px 0 var(--line);}
-/* glass glint — a single hard-edged, semi-transparent rectangular pane sweeps
-   across the card once (left → right) each time the mouse enters, then vanishes.
-   No glow, no accent tint, no mouse tracking. The pane lives inside a 300%-wide
-   background that starts and ends fully off-card, so no overflow:hidden is
-   needed — the duration dropdown can still overflow past the card edge. */
+/* glass glint — an exact replica of the stats sweep: a soft band tilted 20°
+   (110deg gradient ⟂ skewX(-20deg)), same colors, sweeping once left→right in
+   .9s ease-out and fading away. Drawn as an oversized background on ::before so
+   it clips to the card automatically — NO overflow:hidden, the duration
+   dropdown can still drop past the card's bottom edge. */
 .card::before{
   content:""; position:absolute; inset:0; z-index:2; pointer-events:none;
-  background-image:linear-gradient(90deg,
-    transparent 44%,
-    var(--glint-edge) 44%,
-    var(--glint-edge) 44.3%,
-    var(--glint-fill) 44.3%,
-    var(--glint-fill) 55.7%,
-    var(--glint-edge) 55.7%,
-    var(--glint-edge) 56%,
-    transparent 56%);
-  background-size:300% 100%;
+  background-image:linear-gradient(110deg,
+    transparent 47%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 49%,
+    rgba(255,255,255,.35) 51%,
+    transparent 53%);
+  background-size:400% 100%;
   background-repeat:no-repeat;
   background-position:100% 0;
+  opacity:0;
 }
-.card:hover::before{ animation:cardGlint .9s cubic-bezier(.3,.55,.35,1) 1 both; }
-@keyframes cardGlint{ from{ background-position:100% 0; } to{ background-position:0% 0; } }
-.card-head{position:relative; z-index:1; display:flex; justify-content:space-between; align-items:center; padding:20px 24px; border-bottom:1.3px solid var(--line);}
+.card:hover::before{ opacity:1; animation:cardGlint .9s ease-out both; }
+@keyframes cardGlint{
+  from{ background-position:100% 0; opacity:1; }
+  to{ background-position:0% 0; opacity:0; }
+}
+.card-head{display:flex; justify-content:space-between; align-items:center; padding:20px 24px; border-bottom:1.3px solid var(--line);}
 .card-head h2{font-size:22px; font-weight:500; margin:0;}
 .badge{font-family:"IBM Plex Mono",monospace; font-size:11px; border:1px solid var(--amber); color:var(--amber); padding:4px 9px; display:inline-block; transform:rotate(-4deg);}
 
-.field{position:relative; z-index:1; padding:18px 24px; border-bottom:1px solid var(--grid); display:grid; grid-template-columns:120px 1fr; gap:16px; align-items:center;}
+.field{padding:18px 24px; border-bottom:1px solid var(--grid); display:grid; grid-template-columns:120px 1fr; gap:16px; align-items:center;}
 .field label{font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--ink-soft);}
 
 /* custom dropdown */
@@ -145,7 +144,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .stepper input[readonly]{cursor:default;}
 .fixed-tag{display:inline-block; padding:8px 9px; border:1px solid var(--grid); color:var(--ink-soft); font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.04em; white-space:nowrap;}
 
-.foot{position:relative; z-index:1; padding:20px 24px; display:flex; justify-content:space-between; align-items:center; gap:16px;}
+.foot{padding:20px 24px; display:flex; justify-content:space-between; align-items:center; gap:16px;}
 .out{font-family:"IBM Plex Mono",monospace; font-size:13px; color:var(--ink-soft);}
 .out b{color:var(--ink);}
 .gen{background:var(--accent); color:var(--accent-ink); border:1.3px solid var(--line); padding:13px 26px; font-family:"IBM Plex Mono",monospace; font-size:13.5px; cursor:none; position:relative; transition:transform .12s ease, letter-spacing .2s ease;}
@@ -157,7 +156,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .gen:active{transform:translate(2px,2px);}
 .gen:disabled{opacity:.6; cursor:wait;}
 
-/* stats — hover lift + shine kept as the extra ChatGPT added */
+/* stats — hover lift + shine */
 .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1.3px solid var(--line); margin-top:30px;}
 .stats>div{background:var(--card); padding:16px 8px; text-align:center; position:relative; overflow:hidden; transition:transform .18s ease, background .18s ease, box-shadow .18s ease;}
 .stats>div::after{content:""; position:absolute; left:-45%; top:-25%; bottom:-25%; width:28%; background:linear-gradient(90deg,transparent,color-mix(in srgb, var(--accent) 16%, transparent),rgba(255,255,255,.35),transparent); transform:skewX(-20deg); opacity:0; pointer-events:none;}
@@ -172,8 +171,10 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .trust p{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-soft); margin:5px 0;}
 .trust .copy{font-size:10px; opacity:.65;}
 
-/* modal */
-.overlay{position:fixed; inset:0; background:color-mix(in srgb, var(--ink) 55%, transparent); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:24px; z-index:200; opacity:0; pointer-events:none; transition:opacity .25s ease;}
+/* modal — NO backdrop-filter: it forced the GPU to re-blur the whole viewport
+   every frame (cursor rAF + typewriters + unlock animations = constant lag).
+   A slightly darker dim replaces the blur for the same focus effect. */
+.overlay{position:fixed; inset:0; background:color-mix(in srgb, var(--ink) 68%, transparent); display:flex; align-items:center; justify-content:center; padding:24px; z-index:200; opacity:0; pointer-events:none; transition:opacity .25s ease;}
 .overlay.show{opacity:1; pointer-events:auto;}
 .modal{background:var(--card); border:1.3px solid var(--line); box-shadow:9px 9px 0 var(--line); max-width:420px; width:100%; max-height:min(90vh,760px); overflow:auto; transform:scale(.8); opacity:0; transition:transform .38s cubic-bezier(.2,1.4,.4,1), opacity .25s ease;
   background-image:linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size:18px 18px;}
@@ -187,19 +188,21 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .modal-body h3{font-size:24px; font-weight:500; margin:0 0 10px;}
 .modal-body p{font-size:14px; color:var(--ink-soft); line-height:1.6; margin:0 0 4px;}
 .modal-body .warn{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--amber); margin-top:14px;}
+/* unlock — all loops are compositor-only (transform/opacity), zero layout,
+   zero box-shadow repaints; streak parks off-left when animations are off */
 .unlock{
   width:100%; margin-top:20px; position:relative; isolation:isolate; overflow:hidden;
   background:var(--accent); color:var(--accent-ink); border:1.3px solid var(--line);
   padding:15px; font-family:"IBM Plex Mono",monospace; font-size:13.5px; cursor:none;
   transition:transform .16s ease, box-shadow .16s ease, filter .2s ease;
-  animation:unlockPulse 2.4s ease-in-out infinite;
 }
 .unlock span{position:relative; z-index:2;}
 .unlock::before{
-  content:""; position:absolute; z-index:1; pointer-events:none; top:-35%; bottom:-35%; left:-65%; width:38%;
-  transform:skewX(-22deg);
+  content:""; position:absolute; z-index:1; pointer-events:none; top:-35%; bottom:-35%; left:0; width:38%;
+  transform:skewX(-22deg) translateX(-180%);
   background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--accent-ink) 30%,transparent),transparent);
   animation:unlockSweep 2.8s ease-in-out infinite;
+  will-change:transform;
 }
 .unlock::after{
   content:""; position:absolute; z-index:1; pointer-events:none; inset:4px;
@@ -208,18 +211,18 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 }
 .unlock:hover{transform:translateY(-2px); filter:brightness(1.06); box-shadow:0 5px 0 var(--line);}
 .unlock:active{transform:translate(2px,2px); box-shadow:none;}
-.unlock:disabled{opacity:.55; cursor:default; animation:none;}
+.unlock:disabled{opacity:.55; cursor:default;}
+.unlock:disabled::before,.unlock:disabled::after{animation:none;}
 @keyframes unlockSweep{
-  0%,18%{left:-65%; opacity:0;}
-  30%{opacity:1;}
-  72%{left:130%; opacity:1;}
-  73%,100%{left:130%; opacity:0;}
+  0%,18%{ transform:skewX(-22deg) translateX(-180%); opacity:0; }
+  30%{ opacity:1; }
+  72%{ transform:skewX(-22deg) translateX(340%); opacity:1; }
+  73%,100%{ transform:skewX(-22deg) translateX(340%); opacity:0; }
 }
-@keyframes unlockPulse{
-  0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 24%,transparent);}
-  50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 0%,transparent);}
+@keyframes unlockFrame{
+  0%,100%{ opacity:.28; transform:scale(1); }
+  50%{ opacity:.8; transform:scale(1.04); }
 }
-@keyframes unlockFrame{ 0%,100%{opacity:.28;} 50%{opacity:.8;} }
 .ready-caret{height:1em; vertical-align:-.08em; margin-left:1px;}
 .foot-note{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-soft); margin-top:14px;}
 
@@ -362,11 +365,14 @@ document.addEventListener('click',e=>{
   document.body.appendChild(r); setTimeout(()=>r.remove(),600);
 });
 
-// headline typewriter — loop type/delete
+// headline typewriter — builds its spans once, then only textContent is updated
+// (no innerHTML churn every tick, which used to force repaints under the overlay)
 const headTxt='GetKey'; const typeEl=document.getElementById('type');
+typeEl.innerHTML='<span class="ht-txt"></span><span class="caret" aria-hidden="true">&nbsp;</span>';
+const headTxtEl=typeEl.querySelector('.ht-txt');
 let ti=0, tDel=false;
 (function typeHead(){
-  typeEl.innerHTML=headTxt.slice(0,ti)+'<span class="caret">&nbsp;</span>';
+  headTxtEl.textContent=headTxt.slice(0,ti);
   let wait=tDel?65:110;
   if(!tDel && ti===headTxt.length){ wait=1500; tDel=true; }
   else if(tDel && ti===0){ wait=500; tDel=false; }
@@ -468,24 +474,29 @@ function showToast(message){
   window.toastTimer=setTimeout(()=>t.classList.remove('show'),2800);
 }
 
-// modal: "Sẵn sàng" title types in on open
+// modal — "Sẵn sàng" title typewriter: spans built once per open, then textContent only
 const overlay=document.getElementById('overlay'), unlockBtn=document.getElementById('unlockBtn');
 const readyTitle=document.getElementById('readyTitle'); const readyText='Sẵn sàng';
-let readyIndex=0, readyDeleting=false, readyTimer=null;
+let readyIndex=0, readyDeleting=false, readyTimer=null, readyTxtEl=null;
 function stopReadyTyping(reset=true){
   clearTimeout(readyTimer); readyTimer=null;
-  if(reset){ readyIndex=0; readyDeleting=false; readyTitle.textContent=readyText; }
+  if(reset){ readyIndex=0; readyDeleting=false; readyTxtEl=null; readyTitle.textContent=readyText; }
 }
 function typeReadyTitle(){
   if(!overlay.classList.contains('show')){ readyTimer=null; return; }
-  readyTitle.innerHTML=readyText.slice(0,readyIndex)+'<span class="caret ready-caret">&nbsp;</span>';
+  if(readyTxtEl) readyTxtEl.textContent=readyText.slice(0,readyIndex);
   let wait=readyDeleting?65:110;
   if(!readyDeleting && readyIndex===readyText.length){ wait=1400; readyDeleting=true; }
   else if(readyDeleting && readyIndex===0){ wait=500; readyDeleting=false; }
   else{ readyIndex+=readyDeleting?-1:1; }
   readyTimer=setTimeout(typeReadyTitle,wait);
 }
-function startReadyTyping(){ stopReadyTyping(false); readyIndex=0; readyDeleting=false; typeReadyTitle(); }
+function startReadyTyping(){
+  stopReadyTyping(false); readyIndex=0; readyDeleting=false;
+  readyTitle.innerHTML='<span class="rt-txt"></span><span class="caret ready-caret" aria-hidden="true">&nbsp;</span>';
+  readyTxtEl=readyTitle.querySelector('.rt-txt');
+  typeReadyTitle();
+}
 function openModal(){ overlay.classList.add('show'); overlay.setAttribute('aria-hidden','false'); startReadyTyping(); }
 function closeModal(){ overlay.classList.remove('show'); overlay.setAttribute('aria-hidden','true'); stopReadyTyping(); }
 document.getElementById('modalClose').addEventListener('click', closeModal);
