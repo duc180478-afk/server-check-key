@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/keygen_functions.php';
 
-$durationOptionsForJs = [];
+ $durationOptionsForJs = [];
 foreach ($KEYGEN_DURATIONS as $durationKey => $durationConfig) {
     $durationOptionsForJs[] = [
         'value' => $durationKey,
@@ -39,19 +39,18 @@ html{scroll-padding-top:env(safe-area-inset-top,0px);}
 body{
   margin:0; background:var(--paper); color:var(--ink); font-family:"Newsreader",serif;
   background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
-  background-size:28px 28px; cursor:auto;
+  background-size:28px 28px; cursor:none;
 }
 a,button,input{font-family:inherit;}
 .mono{font-family:"IBM Plex Mono",monospace;}
 
-/* custom cursor — native OS pointer shows everywhere by default; the custom dot (sized like
-   the default Windows cursor) plus the blue ring only fade in together over buttons/links */
-#cur{position:fixed; width:46px; height:46px; border:2px solid var(--accent); border-radius:50%; pointer-events:none; z-index:999; transform:translate(-50%,-50%); opacity:0; transition:opacity .15s ease, width .2s cubic-bezier(.2,.8,.2,1), height .2s cubic-bezier(.2,.8,.2,1), background .2s ease, border-color .2s ease;}
-#curdot{position:fixed; width:18px; height:18px; background:var(--accent); border-radius:50%; pointer-events:none; z-index:999; transform:translate(-50%,-50%); opacity:0; transition:opacity .15s ease, transform .15s ease;}
-#cur.hover{opacity:1; background:color-mix(in srgb, var(--accent) 18%, transparent);}
-#curdot.hover{opacity:1;}
-@media(pointer:coarse){ #cur,#curdot{display:none;} }
-button, a, .dd-btn, .dd-list button{ cursor:none; }
+/* custom cursor — identical to the HTML preview: dot + ring are always visible;
+   over interactive elements the ring grows and fills with accent, the dot shrinks away */
+#cur{position:fixed; width:36px; height:36px; border:2.5px solid var(--line); border-radius:50%; pointer-events:none; z-index:999; transform:translate(-50%,-50%); transition:width .22s cubic-bezier(.2,.8,.2,1),height .22s cubic-bezier(.2,.8,.2,1),background .22s,border-color .22s; will-change:transform;}
+#curdot{position:fixed; width:7px; height:7px; background:var(--accent); border-radius:50%; pointer-events:none; z-index:999; transform:translate(-50%,-50%); transition:transform .15s ease, background .2s;}
+#cur.hover{width:58px; height:58px; background:color-mix(in srgb, var(--accent) 22%, transparent); border-color:var(--accent); border-width:2px;}
+#curdot.hover{transform:translate(-50%,-50%) scale(0);}
+@media (pointer:coarse){ body{cursor:auto;} #cur,#curdot{display:none;} }
 .ripple{position:fixed; border-radius:50%; border:1.3px solid var(--line); pointer-events:none; z-index:998; transform:translate(-50%,-50%); animation:rip .6s ease-out forwards;}
 @keyframes rip{ to{ width:90px; height:90px; opacity:0; } }
 @keyframes blink{ 50%{ opacity:0; } }
@@ -96,8 +95,22 @@ h1{font-size:clamp(48px,9vw,96px); font-weight:500; margin:0; line-height:.98; l
 main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .card{position:relative; background:var(--card); border:1.3px solid var(--line); box-shadow:7px 7px 0 var(--line); margin-top:18px; transform:translate(-2px,-2px); transition:transform .18s ease, box-shadow .18s ease;}
 .card:hover{transform:translate(0,0); box-shadow:4px 4px 0 var(--line);}
-.card::before{content:""; position:absolute; inset:0; z-index:0; pointer-events:none; background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%), color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%); opacity:0; transition:opacity .25s ease;}
-.card:hover::before{opacity:1;}
+/* glass/mirror glint — replaces the old spotlight glow around the mouse.
+   A diagonal streak of light slides across the card surface with the pointer:
+   it sweeps in when the mouse enters, tracks it while inside, and glides off
+   the same edge the mouse exits from — like a reflection travelling over glass. */
+.card::before{
+  content:""; position:absolute; inset:0; z-index:2; pointer-events:none;
+  background-image:linear-gradient(115deg,
+    transparent 44%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 48%,
+    color-mix(in srgb, #fff 55%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 18%, transparent) 52%,
+    transparent 56%);
+  background-size:300% 100%;
+  background-repeat:no-repeat;
+  background-position:var(--gx, -2000px) 0;
+}
 .card-head{position:relative; z-index:1; display:flex; justify-content:space-between; align-items:center; padding:20px 24px; border-bottom:1.3px solid var(--line);}
 .card-head h2{font-size:22px; font-weight:500; margin:0;}
 .badge{font-family:"IBM Plex Mono",monospace; font-size:11px; border:1px solid var(--amber); color:var(--amber); padding:4px 9px; display:inline-block; transform:rotate(-4deg);}
@@ -121,6 +134,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 
 .stepper{display:flex; align-items:center; gap:10px; min-width:0;}
 .stepper input{width:86px; min-width:0; padding:9px 12px; border:1.3px solid var(--line); background:var(--paper); color:var(--ink); text-align:center; font-family:"IBM Plex Mono",monospace; font-size:13px;}
+.stepper input[readonly]{cursor:default;}
 .fixed-tag{display:inline-block; padding:8px 9px; border:1px solid var(--grid); color:var(--ink-soft); font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.04em; white-space:nowrap;}
 
 .foot{position:relative; z-index:1; padding:20px 24px; display:flex; justify-content:space-between; align-items:center; gap:16px;}
@@ -331,14 +345,35 @@ function bindHover(el){
   el.addEventListener('mouseenter',()=>{ cur.classList.add('hover'); dot.classList.add('hover'); });
   el.addEventListener('mouseleave',()=>{ cur.classList.remove('hover'); dot.classList.remove('hover'); });
 }
-document.querySelectorAll('button,.dd-btn,.menu a,.dd-list button,a').forEach(bindHover);
+document.querySelectorAll('button,.dd-btn,.menu a,.dd-list button').forEach(bindHover);
 
-// mouse-tracking spotlight glow on the license card
+// glass/mirror glint on the license card — replaces the old mouse spotlight glow.
+// A diagonal band of light sweeps in when the mouse enters, tracks the pointer
+// while it stays inside, then glides off the edge the mouse exits from.
 document.querySelectorAll('.card').forEach(card=>{
+  let gx=null, tx=0, w=0, raf=null;
+  // the band sits at the midpoint of a 300%-wide gradient, so the image offset lags 1.5× card width
+  function loop(){
+    gx+=(tx-gx)*0.16;
+    card.style.setProperty('--gx', Math.round(gx-w*1.5)+'px');
+    if(Math.abs(tx-gx)>0.5) raf=requestAnimationFrame(loop); else raf=null;
+  }
+  const kick=()=>{ if(raf==null) raf=requestAnimationFrame(loop); };
+  card.addEventListener('mouseenter', e=>{
+    const r=card.getBoundingClientRect(); w=r.width;
+    const ex=Math.max(0, Math.min(w, e.clientX-r.left));
+    if(gx===null) gx = ex < w/2 ? -w*0.8 : w*1.8; // first visit: sweep in from the near edge
+    tx=ex; kick();
+  });
   card.addEventListener('mousemove', e=>{
-    const r=card.getBoundingClientRect();
-    card.style.setProperty('--mx', (e.clientX-r.left)+'px');
-    card.style.setProperty('--my', (e.clientY-r.top)+'px');
+    const r=card.getBoundingClientRect(); w=r.width;
+    tx=Math.max(0, Math.min(w, e.clientX-r.left)); kick();
+  });
+  card.addEventListener('mouseleave', e=>{
+    const r=card.getBoundingClientRect(); w=r.width;
+    const ex=e.clientX-r.left;
+    tx = ex < w/2 ? -w*0.9 : w*1.9; // glide out the same side the mouse left
+    kick();
   });
 });
 
