@@ -1,6 +1,7 @@
 <?php
 // keygen_functions.php
 // Các hàm phục vụ trang lấy key miễn phí (getkey + claim)
+// + block cuối: cấu hình app/Telegram qua database (quản trị tại admin/config.php)
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/functions.php';
@@ -8,7 +9,9 @@ require_once __DIR__ . '/functions.php';
 // ================== CẤU HÌNH ==================
 
 // Mỗi app có prefix và Link4m riêng. URL Link4m hiện tại được giữ nguyên.
-$KEYGEN_APPS = [
+// ⚠ app_key + prefix là IDENTITY (client hardcode / nằm trong key text) — đã bị
+//   khoá ở admin/config.php, chỉ label + phần marketing sửa qua web được.
+ $KEYGEN_APPS = [
     'fakelag' => [
         'label'     => 'FakeLag-Free Fire',
         'prefix'    => 'FLFF',
@@ -23,7 +26,7 @@ $KEYGEN_APPS = [
 
 // Thời hạn cho phép. 12h = 43.200 giây; 1 ngày = 86.400 giây; 2 ngày = 172.800 giây.
 // Số lượt Layma được tính thêm sau khi đã hoàn tất Link4m.
-$KEYGEN_DURATIONS = [
+ $KEYGEN_DURATIONS = [
     '12h' => [
         'label' => '12h',
         'seconds' => 43200,
@@ -255,7 +258,7 @@ function supersedeCurrentClaimTicket(string $ip): void {
     $pdo = Database::getConnection();
     $stmt = $pdo->prepare("UPDATE keygen_tickets SET stage = 'superseded', updated_at = ?
         WHERE session_hash = ? AND ip = ?
-          AND stage NOT IN ('completed', 'superseded', 'expired', 'invalid')");
+        AND stage NOT IN ('completed', 'superseded', 'expired', 'invalid')");
     $stmt->execute([time(), claimTicketSessionHash(), $ip]);
 }
 
@@ -280,4 +283,180 @@ function beginClaimTicketIssuance(array $ticket): bool {
         WHERE ticket_id = ? AND session_hash = ? AND ip = ? AND stage = 'ready_to_issue'");
     $stmt->execute([time(), (string)$ticket['ticket_id'], $sessionHash, (string)$ticket['ip']]);
     return $stmt->rowCount() === 1;
+}
+
+// ================== CẤU HÌNH QUA DATABASE ==================
+// Quản trị tại admin/config.php (dùng auth admin sẵn có của folder admin).
+// app_key + prefix bị khoá ở 2 lớp (UI disabled + saveKeygenApp bỏ qua) vì là identity
+// mà client hardcode / nằm trong key text. Ngày "Cập nhật" trên thẻ = thời điểm Lưu.
+
+function initKeygenConfigTables(): void {
+    static $done = false;
+    if ($done) return;
+    $done = true;
+    $pdo = Database::getConnection();
+    $pdo->exec("CREATE TABLE IF NOT EXISTS keygen_apps_config (
+        app_key        TEXT PRIMARY KEY,
+        label          TEXT NOT NULL DEFAULT '',
+        prefix         TEXT NOT NULL DEFAULT '',
+        shortlink      TEXT NOT NULL DEFAULT '',
+        download_url   TEXT NOT NULL DEFAULT '',
+        icon           TEXT NOT NULL DEFAULT '',
+        version        TEXT NOT NULL DEFAULT '',
+        description    TEXT NOT NULL DEFAULT '',
+        size           TEXT NOT NULL DEFAULT '',
+        platform       TEXT NOT NULL DEFAULT '',
+        sort_order     INTEGER NOT NULL DEFAULT 0,
+        enabled        INTEGER NOT NULL DEFAULT 1,
+        updated_at     INTEGER NOT NULL DEFAULT 0
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS keygen_settings (
+        skey       TEXT PRIMARY KEY,
+        svalue     TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL DEFAULT 0
+    )");
+}
+
+// Toàn bộ app đang bật, lấy từ DB (trả [] nếu chưa từng cấu hình)
+function loadKeygenAppsFromDb(): array {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    initKeygenConfigTables();
+    $pdo = Database::getConnection();
+    $rows = $pdo->query("SELECT * FROM keygen_apps_config WHERE enabled = 1 ORDER BY sort_order ASC, app_key ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $apps = [];
+    foreach ($rows as $r) {
+        $apps[$r['app_key']] = [
+            'label'       => (string)$r['label'],
+            'prefix'      => (string)$r['prefix'],
+            'shortlink'   => (string)$r['shortlink'],
+            'downloadUrl' => (string)$r['download_url'],
+            'icon'        => (string)$r['icon'],
+            'version'     => (string)$r['version'],
+            'desc'        => (string)$r['description'],
+            'size'        => (string)$r['size'],
+            'platform'    => (string)$r['platform'],
+            'updated_at'  => (int)$r['updated_at'],
+            'updated'     => ((int)$r['updated_at'] > 0) ? date('d/m', (int)$r['updated_at']) : '',
+        ];
+    }
+    $cache = $apps;
+    return $apps;
+}
+
+// Ghi đè $KEYGEN_APPS bằng cấu hình DB (nếu có) — mọi file require keygen_functions.php
+// (getkey.php, getkey_action.php, claim...) tự dùng cấu hình mới, không sửa file nào.
+// DB lỗi/chưa có gì → giữ nguyên mảng mặc định ở đầu file.
+(function () use (&$KEYGEN_APPS) {
+    try {
+        $dbApps = loadKeygenAppsFromDb();
+        if (!empty($dbApps)) $KEYGEN_APPS = $dbApps;
+    } catch (Throwable $e) {
+        // DB chưa sẵn sàng → dùng cấu hình mặc định trong file này
+    }
+})();
+
+// ----- Settings chung (link Telegram...) -----
+function getKeygenSetting(string $key, string $default = ''): string {
+    initKeygenConfigTables();
+    $stmt = Database::getConnection()->prepare("SELECT svalue FROM keygen_settings WHERE skey = ?");
+    $stmt->execute([$key]);
+    $v = $stmt->fetchColumn();
+    return ($v === false || $v === null) ? $default : (string)$v;
+}
+
+function setKeygenSetting(string $key, string $value): void {
+    initKeygenConfigTables();
+    $pdo = Database::getConnection();
+    $check = $pdo->prepare("SELECT 1 FROM keygen_settings WHERE skey = ?");
+    $check->execute([$key]);
+    if ($check->fetchColumn()) {
+        $pdo->prepare("UPDATE keygen_settings SET svalue = ?, updated_at = ? WHERE skey = ?")->execute([$value, time(), $key]);
+    } else {
+        $pdo->prepare("INSERT INTO keygen_settings (skey, svalue, updated_at) VALUES (?, ?, ?)")->execute([$key, $value, time()]);
+    }
+}
+
+function deleteKeygenSetting(string $key): void {
+    initKeygenConfigTables();
+    Database::getConnection()->prepare("DELETE FROM keygen_settings WHERE skey = ?")->execute([$key]);
+}
+
+// ----- Quản trị app -----
+// Lần đầu mở trang quản trị: seed sẵn các app hiện có trong code để dễ sửa
+function seedKeygenAppDefaults(): void {
+    global $KEYGEN_APPS;
+    $pdo = Database::getConnection();
+    $check = $pdo->prepare("SELECT 1 FROM keygen_apps_config WHERE app_key = ?");
+    $ins = $pdo->prepare("INSERT INTO keygen_apps_config (app_key, label, prefix, shortlink, sort_order, enabled, updated_at) VALUES (?, ?, ?, ?, ?, 1, 0)");
+    $order = 0;
+    foreach ($KEYGEN_APPS as $key => $cfg) {
+        $check->execute([$key]);
+        if (!$check->fetchColumn()) {
+            $ins->execute([$key, $cfg['label'], $cfg['prefix'], $cfg['shortlink'], $order++]);
+        }
+    }
+}
+
+function listKeygenAppsAll(): array {
+    initKeygenConfigTables();
+    $pdo = Database::getConnection();
+    if ((int)$pdo->query("SELECT COUNT(*) FROM keygen_apps_config")->fetchColumn() === 0) {
+        seedKeygenAppDefaults();
+    }
+    return $pdo->query("SELECT * FROM keygen_apps_config ORDER BY sort_order ASC, app_key ASC")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function saveKeygenApp(array $in): bool {
+    initKeygenConfigTables();
+    $pdo = Database::getConnection();
+    $appKey = strtolower(trim((string)($in['app_key'] ?? '')));
+    $label = trim((string)($in['label'] ?? ''));
+    if ($appKey === '' || !preg_match('/^[a-z0-9_-]{1,40}$/', $appKey)) return false;
+    if ($label === '') return false;
+
+    $v = [
+        'shortlink'   => trim((string)($in['shortlink'] ?? '')),
+        'download_url'=> trim((string)($in['download_url'] ?? '')),
+        'icon'        => trim((string)($in['icon'] ?? '')),
+        'version'     => trim((string)($in['version'] ?? '')),
+        'description' => trim((string)($in['description'] ?? '')),
+        'size'        => trim((string)($in['size'] ?? '')),
+        'platform'    => trim((string)($in['platform'] ?? '')),
+        'sort_order'  => (int)($in['sort_order'] ?? 0),
+        'enabled'     => empty($in['enabled']) ? 0 : 1,
+    ];
+    $now = time(); // "Cập nhật" trên thẻ download tự nhảy theo thời điểm này
+
+    $check = $pdo->prepare("SELECT 1 FROM keygen_apps_config WHERE app_key = ?");
+    $check->execute([$appKey]);
+
+    if ($check->fetchColumn()) {
+        // App ĐÃ TỒN TẠI: app_key + prefix là identity (client hardcode / nằm trong
+        // key text đã sinh) — KHÔNG ghi đè dù POST gửi gì. Chỉ label + marketing.
+        $pdo->prepare("UPDATE keygen_apps_config SET label=?, shortlink=?, download_url=?, icon=?, version=?, description=?, size=?, platform=?, sort_order=?, enabled=?, updated_at=? WHERE app_key=?")
+            ->execute([$label, $v['shortlink'], $v['download_url'], $v['icon'], $v['version'], $v['description'], $v['size'], $v['platform'], $v['sort_order'], $v['enabled'], $now, $appKey]);
+        return true;
+    }
+
+    // App MỚI: cần prefix (chỉ áp dụng cho key sinh sau này)
+    $prefix = trim((string)($in['prefix'] ?? ''));
+    if ($prefix === '') return false;
+    $pdo->prepare("INSERT INTO keygen_apps_config (app_key, label, prefix, shortlink, download_url, icon, version, description, size, platform, sort_order, enabled, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        ->execute([$appKey, $label, $prefix, $v['shortlink'], $v['download_url'], $v['icon'], $v['version'], $v['description'], $v['size'], $v['platform'], $v['sort_order'], $v['enabled'], $now]);
+    return true;
+}
+
+function deleteKeygenApp(string $appKey): void {
+    initKeygenConfigTables();
+    Database::getConnection()->prepare("DELETE FROM keygen_apps_config WHERE app_key = ?")->execute([trim($appKey)]);
+}
+
+// Phiên bản cấu hình — trang getkey poll getkey_config.php để tự refresh khi admin vừa lưu
+function getKeygenConfigVersion(): int {
+    initKeygenConfigTables();
+    $pdo = Database::getConnection();
+    $a = (int)$pdo->query("SELECT COALESCE(MAX(updated_at),0) FROM keygen_apps_config")->fetchColumn();
+    $s = (int)$pdo->query("SELECT COALESCE(MAX(updated_at),0) FROM keygen_settings")->fetchColumn();
+    return max($a, $s);
 }
