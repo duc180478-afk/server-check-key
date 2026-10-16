@@ -9,6 +9,10 @@ foreach ($KEYGEN_DURATIONS as $durationKey => $durationConfig) {
         'seconds' => (int)$durationConfig['seconds'],
     ];
 }
+
+// ===== Telegram =====
+ $TG_ADMIN_URL = 'https://t.me/your_admin_here';
+ $TG_GROUP_URL = 'https://t.me/your_channel_here';
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -82,25 +86,71 @@ button:focus-visible, a:focus-visible, .dd-btn:focus-visible{ outline:2px solid 
 .menu .menu-icon{width:15px; height:15px; flex:0 0 15px; stroke:var(--accent); stroke-width:1.7; fill:none; stroke-linecap:round; stroke-linejoin:round; transition:transform .22s ease;}
 .menu a:hover .menu-icon{transform:translateX(3px) scale(1.04);}
 
-/* hero */
-.hero{padding:9vh 6vw 6vh; border-bottom:1.3px solid var(--line);}
+/* hero — intro + mini Telegram bên trái, thẻ tải app bên phải */
+.hero{display:flex; align-items:flex-start; gap:38px; padding:9vh 6vw 6vh; border-bottom:1.3px solid var(--line);}
+.hero-main{flex:1 1 auto; min-width:0;}
+.hero-side{flex:0 0 296px; display:flex; flex-direction:column; gap:13px; padding-top:34px;}
+.side-tag{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-soft); letter-spacing:.06em; margin:0 0 1px;}
 .eyebrow{font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--ink-soft); margin:0 0 14px;}
-h1{font-size:clamp(48px,9vw,96px); font-weight:500; margin:0; line-height:.98; letter-spacing:-.01em;}
+h1{font-size:clamp(48px,8vw,88px); font-weight:500; margin:0; line-height:.98; letter-spacing:-.01em;}
 .caret{display:inline-block; width:.07em; background:var(--accent); margin-left:3px; animation:blink 1s steps(1) infinite;}
-.sub{max-width:49ch; font-size:17px; color:var(--ink-soft); margin-top:18px; line-height:1.55;}
-.sub a{color:var(--accent); text-decoration:underline; text-underline-offset:3px;}
-.sub a:hover{color:var(--ink);}
+.sub{max-width:46ch; font-size:17px; color:var(--ink-soft); margin-top:18px; line-height:1.55;}
+@media(max-width:860px){
+  .hero{flex-direction:column; gap:26px;}
+  .hero-side{flex:1 1 auto; width:100%; padding-top:0;}
+}
 
-/* layout — NOTE: .field/.foot/.card-head intentionally have NO z-index (same as the
-   HTML preview) so the open .dd-list (z-index:30) floats above the rows below it. */
+/* thẻ tải app — nằm ngang, cả thẻ là 1 link, xoay 3D khi rê chuột */
+.dl-card{
+  display:flex; gap:12px; align-items:flex-start;
+  background:var(--card); border:1.3px solid var(--line); box-shadow:4px 4px 0 var(--line);
+  padding:12px 13px; text-decoration:none; color:var(--ink); cursor:none;
+  transform-style:preserve-3d; will-change:transform;
+  transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.dl-card:hover{box-shadow:6px 6px 0 var(--line); border-color:var(--accent);}
+.dl-img{width:46px; height:46px; flex:0 0 46px; border:1.3px solid var(--line); background:var(--paper); object-fit:cover; display:block;}
+.dl-body{min-width:0; flex:1;}
+.dl-row{display:flex; justify-content:space-between; align-items:baseline; gap:8px;}
+.dl-name{font-size:16px; font-weight:500; line-height:1.2;}
+.dl-name em{font-style:normal; color:var(--ink-soft); font-size:12.5px;}
+.dl-ver{font-family:"IBM Plex Mono",monospace; font-size:9.5px; border:1px solid var(--amber); color:var(--amber); padding:1.5px 6px; white-space:nowrap;}
+.dl-desc{font-size:12px; color:var(--ink-soft); line-height:1.45; margin:4px 0 0;}
+.dl-meta{font-family:"IBM Plex Mono",monospace; font-size:10px; color:var(--ink-soft); margin-top:7px; border-top:1px solid var(--grid); padding-top:7px;}
+
+/* mini thẻ Telegram — ngay dưới intro, ~1/5 kích thước thẻ tải.
+   Logo SVG chính thức của Telegram (vòng tròn gradient #2AABEE→#229ED9 + paper plane trắng),
+   in nổi 3D bằng drop-shadow, xoay liên tục quanh trục dọc (rotateY). */
+.tg-row{display:grid; grid-template-columns:1fr 1fr; gap:10px; max-width:330px; margin-top:24px;}
+.tg-mini{
+  display:flex; align-items:center; gap:8px; min-width:0;
+  background:var(--card); border:1.3px solid var(--line); box-shadow:2px 2px 0 var(--line);
+  padding:7px 9px; text-decoration:none; cursor:none;
+  transition:transform .15s ease, box-shadow .15s ease, border-color .18s ease;
+}
+.tg-mini:hover{border-color:var(--accent); box-shadow:3px 3px 0 var(--accent); transform:translate(-1px,-1px);}
+.tg-mini:active{transform:translate(1px,1px); box-shadow:none;}
+.tg-mini-logo{
+  width:20px; height:20px; flex:0 0 20px; line-height:0; display:inline-flex;
+  perspective:240px;
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.5)) drop-shadow(0 3px 6px rgba(34,158,217,.45));
+}
+.tg-mini-logo svg{width:20px; height:20px; display:block; animation:tgSpin 3.2s linear infinite; will-change:transform;}
+@keyframes tgSpin{
+  from{ transform:rotateY(0deg); }
+  to{ transform:rotateY(360deg); }
+}
+.tg-mini-txt{
+  font-family:"IBM Plex Mono",monospace; font-size:9.5px; letter-spacing:.02em; color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* layout — .field/.foot/.card-head intentionally have NO z-index so the open
+   .dd-list (z-index:30) floats above the rows below it */
 main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .card{position:relative; z-index:1; background:var(--card); border:1.3px solid var(--line); box-shadow:7px 7px 0 var(--line); margin-top:18px; transform:translate(-2px,-2px); transition:transform .18s ease, box-shadow .18s ease;}
 .card:hover{transform:translate(0,0); box-shadow:4px 4px 0 var(--line);}
-/* glass glint — an exact replica of the stats sweep: a soft band tilted 20°
-   (110deg gradient ⟂ skewX(-20deg)), same colors, sweeping once left→right in
-   .9s ease-out and fading away. Drawn as an oversized background on ::before so
-   it clips to the card automatically — NO overflow:hidden, the duration
-   dropdown can still drop past the card's bottom edge. */
+/* glass glint — bản sao hiệu ứng stats: dải nghiêng 20°, quét 1 lần trái→phải rồi mờ mất */
 .card::before{
   content:""; position:absolute; inset:0; z-index:2; pointer-events:none;
   background-image:linear-gradient(110deg,
@@ -157,7 +207,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .gen:disabled{opacity:.6; cursor:wait;}
 
 /* stats — hover lift + shine */
-.stats{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1.3px solid var(--line); margin-top:30px;}
+.stats{display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1.3px solid var(--line); margin-top:34px;}
 .stats>div{background:var(--card); padding:16px 8px; text-align:center; position:relative; overflow:hidden; transition:transform .18s ease, background .18s ease, box-shadow .18s ease;}
 .stats>div::after{content:""; position:absolute; left:-45%; top:-25%; bottom:-25%; width:28%; background:linear-gradient(90deg,transparent,color-mix(in srgb, var(--accent) 16%, transparent),rgba(255,255,255,.35),transparent); transform:skewX(-20deg); opacity:0; pointer-events:none;}
 .stats>div:hover{transform:translate(0,-2px); background:color-mix(in srgb, var(--card) 85%, white); box-shadow:0 3px 0 var(--accent);}
@@ -171,9 +221,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .trust p{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-soft); margin:5px 0;}
 .trust .copy{font-size:10px; opacity:.65;}
 
-/* modal — NO backdrop-filter: it forced the GPU to re-blur the whole viewport
-   every frame (cursor rAF + typewriters + unlock animations = constant lag).
-   A slightly darker dim replaces the blur for the same focus effect. */
+/* modal — NO backdrop-filter (perf fix) */
 .overlay{position:fixed; inset:0; background:color-mix(in srgb, var(--ink) 68%, transparent); display:flex; align-items:center; justify-content:center; padding:24px; z-index:200; opacity:0; pointer-events:none; transition:opacity .25s ease;}
 .overlay.show{opacity:1; pointer-events:auto;}
 .modal{background:var(--card); border:1.3px solid var(--line); box-shadow:9px 9px 0 var(--line); max-width:420px; width:100%; max-height:min(90vh,760px); overflow:auto; transform:scale(.8); opacity:0; transition:transform .38s cubic-bezier(.2,1.4,.4,1), opacity .25s ease;
@@ -188,8 +236,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .modal-body h3{font-size:24px; font-weight:500; margin:0 0 10px;}
 .modal-body p{font-size:14px; color:var(--ink-soft); line-height:1.6; margin:0 0 4px;}
 .modal-body .warn{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--amber); margin-top:14px;}
-/* unlock — all loops are compositor-only (transform/opacity), zero layout,
-   zero box-shadow repaints; streak parks off-left when animations are off */
+/* unlock — compositor-only animations (transform/opacity) */
 .unlock{
   width:100%; margin-top:20px; position:relative; isolation:isolate; overflow:hidden;
   background:var(--accent); color:var(--accent-ink); border:1.3px solid var(--line);
@@ -201,8 +248,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
   content:""; position:absolute; z-index:1; pointer-events:none; top:-35%; bottom:-35%; left:0; width:38%;
   transform:skewX(-22deg) translateX(-180%);
   background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--accent-ink) 30%,transparent),transparent);
-  animation:unlockSweep 2.8s ease-in-out infinite;
-  will-change:transform;
+  animation:unlockSweep 2.8s ease-in-out infinite; will-change:transform;
 }
 .unlock::after{
   content:""; position:absolute; z-index:1; pointer-events:none; inset:4px;
@@ -219,10 +265,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
   72%{ transform:skewX(-22deg) translateX(340%); opacity:1; }
   73%,100%{ transform:skewX(-22deg) translateX(340%); opacity:0; }
 }
-@keyframes unlockFrame{
-  0%,100%{ opacity:.28; transform:scale(1); }
-  50%{ opacity:.8; transform:scale(1.04); }
-}
+@keyframes unlockFrame{ 0%,100%{opacity:.28; transform:scale(1);} 50%{opacity:.8; transform:scale(1.04);} }
 .ready-caret{height:1em; vertical-align:-.08em; margin-left:1px;}
 .foot-note{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-soft); margin-top:14px;}
 
@@ -256,9 +299,89 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 </header>
 
 <section class="hero">
-  <p class="eyebrow">Hệ thống cấp license MDUCDZ</p>
-  <h1 id="type"><span class="caret">&nbsp;</span></h1>
-  <p class="sub">Mỗi key chỉ gắn với 1 thiết bị, không chia sẻ key đã tạo cho bất kỳ ai. Nếu gặp lỗi khi tạo key, liên hệ <a href="https://t.me/your_admin_here" target="_blank" rel="noopener">admin qua Telegram</a> — hoặc tham gia <a href="https://t.me/your_channel_here" target="_blank" rel="noopener">nhóm nhận key free mỗi ngày</a>.</p>
+  <div class="hero-main">
+    <p class="eyebrow">Hệ thống cấp license MDUCDZ</p>
+    <h1 id="type"><span class="caret">&nbsp;</span></h1>
+    <p class="sub">Mỗi key chỉ gắn với 1 thiết bị, không chia sẻ key đã tạo cho bất kỳ ai. Gặp lỗi khi tạo key hoặc muốn nhận key free mỗi ngày — bấm thẻ Telegram bên dưới.</p>
+
+    <!-- mini thẻ Telegram — logo chính thức quay trục dọc -->
+    <div class="tg-row">
+      <a class="tg-mini" href="<?= htmlspecialchars($TG_ADMIN_URL, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" title="Telegram Admin">
+        <span class="tg-mini-logo" aria-hidden="true">
+          <svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="tgLogoA" x1="120" y1="0" x2="120" y2="240" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#2AABEE"/><stop offset="1" stop-color="#229ED9"/>
+              </linearGradient>
+            </defs>
+            <circle cx="120" cy="120" r="120" fill="url(#tgLogoA)"/>
+            <path fill="#ffffff" fill-rule="evenodd" clip-rule="evenodd" d="M181.79 75.2791L158.222 167.655C156.444 174.555 152.477 176.284 146.933 173.171L117.44 151.398L103.217 165.096C101.645 166.668 100.32 168 97.442 168L99.444 138.075L154.539 88.4177C156.936 86.2752 154.033 85.1295 150.856 87.272L83.1776 130.012L54.1066 120.921C47.2739 118.785 47.2092 114.102 55.5202 110.989L173.156 65.7891C178.738 63.7152 183.631 67.1164 181.79 75.2791Z"/>
+          </svg>
+        </span>
+        <span class="tg-mini-txt">Telegram Admin</span>
+      </a>
+      <a class="tg-mini" href="<?= htmlspecialchars($TG_GROUP_URL, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener" title="Group Share Mod">
+        <span class="tg-mini-logo" aria-hidden="true">
+          <svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="tgLogoB" x1="120" y1="0" x2="120" y2="240" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#2AABEE"/><stop offset="1" stop-color="#229ED9"/>
+              </linearGradient>
+            </defs>
+            <circle cx="120" cy="120" r="120" fill="url(#tgLogoB)"/>
+            <path fill="#ffffff" fill-rule="evenodd" clip-rule="evenodd" d="M181.79 75.2791L158.222 167.655C156.444 174.555 152.477 176.284 146.933 173.171L117.44 151.398L103.217 165.096C101.645 166.668 100.32 168 97.442 168L99.444 138.075L154.539 88.4177C156.936 86.2752 154.033 85.1295 150.856 87.272L83.1776 130.012L54.1066 120.921C47.2739 118.785 47.2092 114.102 55.5202 110.989L173.156 65.7891C178.738 63.7152 183.631 67.1164 181.79 75.2791Z"/>
+          </svg>
+        </span>
+        <span class="tg-mini-txt">Group Share Mod</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- thẻ tải app — render từ $KEYGEN_APPS, cả thẻ là 1 link, xoay 3D khi rê chuột -->
+  <div class="hero-side" id="downloads">
+    <p class="side-tag">TẢI ỨNG DỤNG — DOWNLOAD</p>
+    <?php
+    $appIndex = 0;
+    foreach ($KEYGEN_APPS as $gKey => $g):
+      $appIndex++;
+      $appLabel  = $g['label'];
+      $dlUrl     = $g['downloadUrl'] ?? '#';
+      $version   = $g['version'] ?? '';
+      $desc      = $g['desc'] ?? '';
+      $size      = $g['size'] ?? '';
+      $platform  = $g['platform'] ?? '';
+      $updated   = $g['updated'] ?? '';
+      $metaParts = array_filter([$size, $platform, $updated], fn($p) => $p !== '');
+      $meta      = implode(' · ', $metaParts);
+      $nameParts = preg_split('/\s*—\s*|\s+-\s+/u', $appLabel, 2);
+      $nameMain  = trim($nameParts[0]);
+      $nameSub   = isset($nameParts[1]) ? trim($nameParts[1]) : '';
+      if (!empty($g['icon'])) {
+        $imgTag = '<img class="dl-img" src="' . htmlspecialchars($g['icon'], ENT_QUOTES, 'UTF-8') . '" alt="' . htmlspecialchars($appLabel, ENT_QUOTES, 'UTF-8') . '">';
+      } else {
+        $initials = '';
+        foreach (preg_split('/\s+/u', trim($appLabel)) as $w) {
+          if ($w === '') continue;
+          $initials .= mb_strtoupper(mb_substr($w, 0, 1, 'UTF-8'), 'UTF-8');
+          if (mb_strlen($initials, 'UTF-8') >= 2) break;
+        }
+        $phSvg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect width='48' height='48' fill='#DEDAD0'/><text x='24' y='31' font-family='monospace' font-size='18' font-weight='bold' text-anchor='middle' fill='#2B4FD8'>{$initials}</text></svg>";
+        $imgTag = '<img class="dl-img" src="data:image/svg+xml,' . rawurlencode($phSvg) . '" alt="' . htmlspecialchars($appLabel, ENT_QUOTES, 'UTF-8') . '">';
+      }
+    ?>
+    <a class="dl-card" href="<?= htmlspecialchars($dlUrl, ENT_QUOTES, 'UTF-8') ?>">
+      <?= $imgTag ?>
+      <div class="dl-body">
+        <div class="dl-row">
+          <span class="dl-name"><?= htmlspecialchars($nameMain, ENT_QUOTES, 'UTF-8') ?><?= $nameSub !== '' ? ' <em>— ' . htmlspecialchars($nameSub, ENT_QUOTES, 'UTF-8') . '</em>' : '' ?></span>
+          <?= $version !== '' ? '<span class="dl-ver">' . htmlspecialchars($version, ENT_QUOTES, 'UTF-8') . '</span>' : '' ?>
+        </div>
+        <?= $desc !== '' ? '<p class="dl-desc">' . htmlspecialchars($desc, ENT_QUOTES, 'UTF-8') . '</p>' : '' ?>
+        <?= $meta !== '' ? '<div class="dl-meta">' . htmlspecialchars($meta, ENT_QUOTES, 'UTF-8') . '</div>' : '' ?>
+      </div>
+    </a>
+    <?php endforeach; ?>
+  </div>
 </section>
 
 <main>
@@ -356,7 +479,17 @@ function bindHover(el){
   el.addEventListener('mouseenter',()=>{ cur.classList.add('hover'); dot.classList.add('hover'); });
   el.addEventListener('mouseleave',()=>{ cur.classList.remove('hover'); dot.classList.remove('hover'); });
 }
-document.querySelectorAll('button,.dd-btn,.menu a,.dd-list button').forEach(bindHover);
+document.querySelectorAll('a,button').forEach(bindHover);
+
+// tilt 3D trên thẻ tải app — transform-only, không lag
+document.querySelectorAll('.dl-card').forEach(card=>{
+  card.addEventListener('mousemove',e=>{
+    const r=card.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width-.5, py=(e.clientY-r.top)/r.height-.5;
+    card.style.transform='perspective(700px) rotateY('+(px*9).toFixed(2)+'deg) rotateX('+(-py*7).toFixed(2)+'deg) translateY(-2px)';
+  });
+  card.addEventListener('mouseleave',()=>{ card.style.transform=''; });
+});
 
 // click ripple
 document.addEventListener('click',e=>{
@@ -365,8 +498,7 @@ document.addEventListener('click',e=>{
   document.body.appendChild(r); setTimeout(()=>r.remove(),600);
 });
 
-// headline typewriter — builds its spans once, then only textContent is updated
-// (no innerHTML churn every tick, which used to force repaints under the overlay)
+// headline typewriter — spans built once, textContent only
 const headTxt='GetKey'; const typeEl=document.getElementById('type');
 typeEl.innerHTML='<span class="ht-txt"></span><span class="caret" aria-hidden="true">&nbsp;</span>';
 const headTxtEl=typeEl.querySelector('.ht-txt');
@@ -474,7 +606,7 @@ function showToast(message){
   window.toastTimer=setTimeout(()=>t.classList.remove('show'),2800);
 }
 
-// modal — "Sẵn sàng" title typewriter: spans built once per open, then textContent only
+// modal: "Sẵn sàng" title types in on open
 const overlay=document.getElementById('overlay'), unlockBtn=document.getElementById('unlockBtn');
 const readyTitle=document.getElementById('readyTitle'); const readyText='Sẵn sàng';
 let readyIndex=0, readyDeleting=false, readyTimer=null, readyTxtEl=null;
