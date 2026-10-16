@@ -25,12 +25,14 @@ foreach ($KEYGEN_DURATIONS as $durationKey => $durationConfig) {
   --paper:#F6F4EE; --card:#FCFBF7; --ink:#191B17; --ink-soft:#4C4A42;
   --grid:#DEDAD0; --accent:#2B4FD8; --accent-ink:#F6F4EE; --amber:#C4780A;
   --line:#191B17; color-scheme:light;
+  --glint-fill:rgba(255,255,255,.5); --glint-edge:rgba(25,27,23,.12);
   padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
 }
 @media(prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     --paper:#15160F; --card:#1C1D15; --ink:#EDEAE0; --ink-soft:#A6A295;
     --grid:#2B2C22; --accent:#7D95F5; --accent-ink:#15160F; --amber:#E0A03E; --line:#EDEAE0;
+    --glint-fill:rgba(255,255,255,.2); --glint-edge:rgba(237,234,224,.18);
     color-scheme:dark;
   }
 }
@@ -95,22 +97,28 @@ h1{font-size:clamp(48px,9vw,96px); font-weight:500; margin:0; line-height:.98; l
 main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .card{position:relative; background:var(--card); border:1.3px solid var(--line); box-shadow:7px 7px 0 var(--line); margin-top:18px; transform:translate(-2px,-2px); transition:transform .18s ease, box-shadow .18s ease;}
 .card:hover{transform:translate(0,0); box-shadow:4px 4px 0 var(--line);}
-/* glass/mirror glint — replaces the old spotlight glow around the mouse.
-   A diagonal streak of light slides across the card surface with the pointer:
-   it sweeps in when the mouse enters, tracks it while inside, and glides off
-   the same edge the mouse exits from — like a reflection travelling over glass. */
+/* glass glint — a single hard-edged, semi-transparent rectangular pane sweeps
+   across the card once (left → right) each time the mouse enters, then vanishes.
+   No glow, no accent tint, no mouse tracking. The pane lives inside a 300%-wide
+   background that starts and ends fully off-card, so no overflow:hidden is
+   needed — the duration dropdown can still overflow past the card edge. */
 .card::before{
   content:""; position:absolute; inset:0; z-index:2; pointer-events:none;
-  background-image:linear-gradient(115deg,
+  background-image:linear-gradient(90deg,
     transparent 44%,
-    color-mix(in srgb, var(--accent) 18%, transparent) 48%,
-    color-mix(in srgb, #fff 55%, transparent) 50%,
-    color-mix(in srgb, var(--accent) 18%, transparent) 52%,
+    var(--glint-edge) 44%,
+    var(--glint-edge) 44.3%,
+    var(--glint-fill) 44.3%,
+    var(--glint-fill) 55.7%,
+    var(--glint-edge) 55.7%,
+    var(--glint-edge) 56%,
     transparent 56%);
   background-size:300% 100%;
   background-repeat:no-repeat;
-  background-position:var(--gx, -2000px) 0;
+  background-position:100% 0;
 }
+.card:hover::before{ animation:cardGlint .9s cubic-bezier(.3,.55,.35,1) 1 both; }
+@keyframes cardGlint{ from{ background-position:100% 0; } to{ background-position:0% 0; } }
 .card-head{position:relative; z-index:1; display:flex; justify-content:space-between; align-items:center; padding:20px 24px; border-bottom:1.3px solid var(--line);}
 .card-head h2{font-size:22px; font-weight:500; margin:0;}
 .badge{font-family:"IBM Plex Mono",monospace; font-size:11px; border:1px solid var(--amber); color:var(--amber); padding:4px 9px; display:inline-block; transform:rotate(-4deg);}
@@ -346,36 +354,6 @@ function bindHover(el){
   el.addEventListener('mouseleave',()=>{ cur.classList.remove('hover'); dot.classList.remove('hover'); });
 }
 document.querySelectorAll('button,.dd-btn,.menu a,.dd-list button').forEach(bindHover);
-
-// glass/mirror glint on the license card — replaces the old mouse spotlight glow.
-// A diagonal band of light sweeps in when the mouse enters, tracks the pointer
-// while it stays inside, then glides off the edge the mouse exits from.
-document.querySelectorAll('.card').forEach(card=>{
-  let gx=null, tx=0, w=0, raf=null;
-  // the band sits at the midpoint of a 300%-wide gradient, so the image offset lags 1.5× card width
-  function loop(){
-    gx+=(tx-gx)*0.16;
-    card.style.setProperty('--gx', Math.round(gx-w*1.5)+'px');
-    if(Math.abs(tx-gx)>0.5) raf=requestAnimationFrame(loop); else raf=null;
-  }
-  const kick=()=>{ if(raf==null) raf=requestAnimationFrame(loop); };
-  card.addEventListener('mouseenter', e=>{
-    const r=card.getBoundingClientRect(); w=r.width;
-    const ex=Math.max(0, Math.min(w, e.clientX-r.left));
-    if(gx===null) gx = ex < w/2 ? -w*0.8 : w*1.8; // first visit: sweep in from the near edge
-    tx=ex; kick();
-  });
-  card.addEventListener('mousemove', e=>{
-    const r=card.getBoundingClientRect(); w=r.width;
-    tx=Math.max(0, Math.min(w, e.clientX-r.left)); kick();
-  });
-  card.addEventListener('mouseleave', e=>{
-    const r=card.getBoundingClientRect(); w=r.width;
-    const ex=e.clientX-r.left;
-    tx = ex < w/2 ? -w*0.9 : w*1.9; // glide out the same side the mouse left
-    kick();
-  });
-});
 
 // click ripple
 document.addEventListener('click',e=>{
