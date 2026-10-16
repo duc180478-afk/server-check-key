@@ -16,7 +16,7 @@ foreach ($KEYGEN_DURATIONS as $durationKey => $durationConfig) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#F6F4EE">
-<title>GetKey — KEY.SYS</title>
+<title>GetKey — KEY SYSTEM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -39,17 +39,19 @@ html{scroll-padding-top:env(safe-area-inset-top,0px);}
 body{
   margin:0; background:var(--paper); color:var(--ink); font-family:"Newsreader",serif;
   background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
-  background-size:28px 28px; cursor:none;
+  background-size:28px 28px; cursor:auto;
 }
-@media(pointer:coarse){ body{cursor:auto;} #cur,#curdot{display:none;} }
 a,button,input{font-family:inherit;}
 .mono{font-family:"IBM Plex Mono",monospace;}
 
-/* custom cursor — dot snaps, ring trails (same as the HTML preview) */
-#cur{position:fixed; width:36px; height:36px; border:2.5px solid var(--line); border-radius:50%; pointer-events:none; z-index:999; transform:translate(-50%,-50%); transition:width .22s cubic-bezier(.2,.8,.2,1),height .22s cubic-bezier(.2,.8,.2,1),background .22s,border-color .22s;}
-#curdot{position:fixed; width:7px; height:7px; background:var(--accent); border-radius:50%; pointer-events:none; z-index:999; transform:translate(-50%,-50%); transition:transform .15s ease;}
-#cur.hover{width:58px; height:58px; background:color-mix(in srgb, var(--accent) 22%, transparent); border-color:var(--accent); border-width:2px;}
-#curdot.hover{transform:translate(-50%,-50%) scale(0);}
+/* custom cursor — native OS pointer shows everywhere by default; the custom dot (sized like
+   the default Windows cursor) plus the blue ring only fade in together over buttons/links */
+#cur{position:fixed; width:46px; height:46px; border:2px solid var(--accent); border-radius:50%; pointer-events:none; z-index:999; transform:translate(-50%,-50%); opacity:0; transition:opacity .15s ease, width .2s cubic-bezier(.2,.8,.2,1), height .2s cubic-bezier(.2,.8,.2,1), background .2s ease, border-color .2s ease;}
+#curdot{position:fixed; width:18px; height:18px; background:var(--accent); border-radius:50%; pointer-events:none; z-index:999; transform:translate(-50%,-50%); opacity:0; transition:opacity .15s ease, transform .15s ease;}
+#cur.hover{opacity:1; background:color-mix(in srgb, var(--accent) 18%, transparent);}
+#curdot.hover{opacity:1;}
+@media(pointer:coarse){ #cur,#curdot{display:none;} }
+button, a, .dd-btn, .dd-list button{ cursor:none; }
 .ripple{position:fixed; border-radius:50%; border:1.3px solid var(--line); pointer-events:none; z-index:998; transform:translate(-50%,-50%); animation:rip .6s ease-out forwards;}
 @keyframes rip{ to{ width:90px; height:90px; opacity:0; } }
 @keyframes blink{ 50%{ opacity:0; } }
@@ -92,13 +94,15 @@ h1{font-size:clamp(48px,9vw,96px); font-weight:500; margin:0; line-height:.98; l
 
 /* layout */
 main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
-.card{background:var(--card); border:1.3px solid var(--line); box-shadow:7px 7px 0 var(--line); margin-top:18px; transform:translate(-2px,-2px); transition:transform .18s ease, box-shadow .18s ease;}
+.card{position:relative; background:var(--card); border:1.3px solid var(--line); box-shadow:7px 7px 0 var(--line); margin-top:18px; transform:translate(-2px,-2px); transition:transform .18s ease, box-shadow .18s ease;}
 .card:hover{transform:translate(0,0); box-shadow:4px 4px 0 var(--line);}
-.card-head{display:flex; justify-content:space-between; align-items:center; padding:20px 24px; border-bottom:1.3px solid var(--line);}
+.card::before{content:""; position:absolute; inset:0; z-index:0; pointer-events:none; background:radial-gradient(260px circle at var(--mx,50%) var(--my,50%), color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%); opacity:0; transition:opacity .25s ease;}
+.card:hover::before{opacity:1;}
+.card-head{position:relative; z-index:1; display:flex; justify-content:space-between; align-items:center; padding:20px 24px; border-bottom:1.3px solid var(--line);}
 .card-head h2{font-size:22px; font-weight:500; margin:0;}
 .badge{font-family:"IBM Plex Mono",monospace; font-size:11px; border:1px solid var(--amber); color:var(--amber); padding:4px 9px; display:inline-block; transform:rotate(-4deg);}
 
-.field{padding:18px 24px; border-bottom:1px solid var(--grid); display:grid; grid-template-columns:120px 1fr; gap:16px; align-items:center;}
+.field{position:relative; z-index:1; padding:18px 24px; border-bottom:1px solid var(--grid); display:grid; grid-template-columns:120px 1fr; gap:16px; align-items:center;}
 .field label{font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--ink-soft);}
 
 /* custom dropdown */
@@ -119,7 +123,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 .stepper input{width:86px; min-width:0; padding:9px 12px; border:1.3px solid var(--line); background:var(--paper); color:var(--ink); text-align:center; font-family:"IBM Plex Mono",monospace; font-size:13px;}
 .fixed-tag{display:inline-block; padding:8px 9px; border:1px solid var(--grid); color:var(--ink-soft); font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.04em; white-space:nowrap;}
 
-.foot{padding:20px 24px; display:flex; justify-content:space-between; align-items:center; gap:16px;}
+.foot{position:relative; z-index:1; padding:20px 24px; display:flex; justify-content:space-between; align-items:center; gap:16px;}
 .out{font-family:"IBM Plex Mono",monospace; font-size:13px; color:var(--ink-soft);}
 .out b{color:var(--ink);}
 .gen{background:var(--accent); color:var(--accent-ink); border:1.3px solid var(--line); padding:13px 26px; font-family:"IBM Plex Mono",monospace; font-size:13.5px; cursor:none; position:relative; transition:transform .12s ease, letter-spacing .2s ease;}
@@ -212,7 +216,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 <div id="cur" aria-hidden="true"></div><div id="curdot" aria-hidden="true"></div>
 
 <header class="bar">
-  <div class="wordmark"><b>KEY</b>.SYS — node vn-01</div>
+  <div class="wordmark"><b>KEY</b>.SYSTEM — MDUCDZ</div>
   <button class="burger" id="burger" type="button" aria-label="Mở menu" aria-controls="menu" aria-expanded="false"><span></span><span></span><span></span></button>
   <nav class="menu" id="menu" aria-label="Menu chính" aria-hidden="true">
     <a href="getkey">
@@ -227,7 +231,7 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
 </header>
 
 <section class="hero">
-  <p class="eyebrow">Hệ thống cấp license nội bộ</p>
+  <p class="eyebrow">Hệ thống cấp license MDUCDZ</p>
   <h1 id="type"><span class="caret">&nbsp;</span></h1>
   <p class="sub">Mỗi key chỉ gắn với 1 thiết bị, không chia sẻ key đã tạo cho bất kỳ ai. Nếu gặp lỗi khi tạo key, liên hệ <a href="https://t.me/your_admin_here" target="_blank" rel="noopener">admin qua Telegram</a> — hoặc tham gia <a href="https://t.me/your_channel_here" target="_blank" rel="noopener">nhóm nhận key free mỗi ngày</a>.</p>
 </section>
@@ -281,9 +285,9 @@ main{padding:0 6vw 9vh; max-width:620px; margin:0 auto;}
   </section>
 
   <div class="stats">
-    <div><span class="num">12.482</span><span class="lbl">Key đã tạo</span></div>
+    <div><span class="num">374</span><span class="lbl">Key đã tạo</span></div>
     <div><span class="num">4.6/5</span><span class="lbl">Đánh giá sao</span></div>
-    <div><span class="num">8.933</span><span class="lbl">Lượt truy cập</span></div>
+    <div><span class="num">1547</span><span class="lbl">Lượt truy cập</span></div>
     <div><span class="num">99.9%</span><span class="lbl">Uptime</span></div>
   </div>
 
@@ -328,6 +332,15 @@ function bindHover(el){
   el.addEventListener('mouseleave',()=>{ cur.classList.remove('hover'); dot.classList.remove('hover'); });
 }
 document.querySelectorAll('button,.dd-btn,.menu a,.dd-list button,a').forEach(bindHover);
+
+// mouse-tracking spotlight glow on the license card
+document.querySelectorAll('.card').forEach(card=>{
+  card.addEventListener('mousemove', e=>{
+    const r=card.getBoundingClientRect();
+    card.style.setProperty('--mx', (e.clientX-r.left)+'px');
+    card.style.setProperty('--my', (e.clientY-r.top)+'px');
+  });
+});
 
 // click ripple
 document.addEventListener('click',e=>{
