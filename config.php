@@ -15,4 +15,4 @@ define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8430522560:AAEZ8T7
 define('TELEGRAM_ADMIN_CHAT_IDS', $adminIds);
 
 // URL webhook của bot
-define('BOT_WEBHOOK_URL', getenv('BOT_WEBHOOK_URL') ?: 'https://server-check-key-vwoq.onrender.com/bot.php');
+define('BOT_WEBHOOK_URL', getenv('BOT_WEBHOOK_URL') ?: https://getkey-server.onrender.com);
