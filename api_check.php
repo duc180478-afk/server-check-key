@@ -11,11 +11,7 @@ header('Content-Type: application/json');
 // Người dump APK 1 lần lấy được secret → forge HMAC. Phase 4 (Keystore) mới thật sự bịt.
 $APP_SECRET = 'FAKEPING_BY_MDUCDZ';
 
-// FF product family: FakePing (fakelag) + LocMod share keys. AOV ESP = proxy only.
-function is_ff_family($app) {
-    $a = strtolower(trim((string)$app));
-    return ($a === 'fakelag' || $a === 'locmod');
-}
+// is_ff_family() defined in functions.php (includes modskin)
 
 $ip = getClientIp();
 if (!checkRateLimit('api_' . $ip, 30, 60)) {
