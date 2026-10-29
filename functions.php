@@ -7,6 +7,7 @@ require_once 'db.php';
 define('SYSTEM_APPS', [
  'fakelag' => ['label' => 'FakeLag / FakePing', 'default_prefix' => 'FLFF'],
  'locmod' => ['label' => 'Loc Mod Proxy', 'default_prefix' => 'LOCMOD'],
+ 'modskin' => ['label' => 'Mod Skin FF', 'default_prefix' => 'MODSKIN'],
  'proxy' => ['label' => 'AOV ESP', 'default_prefix' => 'PRX'],
 ]);
 
@@ -17,6 +18,12 @@ function getAppLabel($appKey) {
  return SYSTEM_APPS[$appKey]['label'];
  }
  return 'Other';
+}
+
+// FF product family: FakePing (fakelag) + LocMod + Mod Skin share keys.
+function is_ff_family($app) {
+    $a = strtolower(trim((string)$app));
+    return ($a === 'fakelag' || $a === 'locmod' || $a === 'modskin');
 }
 
 function generateRandomString($length = 10) {
@@ -72,155 +79,81 @@ function updateKey($id, $fields) {
  'bound_hwid', 'session_token', 'last_ip', 'last_seen_at', 'ban_reason', 'anomaly_count'];
  $sets = [];
  $params = [];
- foreach ($fields as $col => $val) {
- if (!in_array($col, $allowed, true)) continue;
- $sets[] = "$col = ?";
- $params[] = $val;
+ foreach ($fields as $k => $v) {
+ if (in_array($k, $allowed, true)) {
+ $sets[] = "$k = ?";
+ $params[] = $v;
+ }
  }
  if (empty($sets)) return false;
  $params[] = (int)$id;
- $sql = "UPDATE keys SET " . implode(', ', $sets) . " WHERE id = ?";
- $stmt = $pdo->prepare($sql);
- $stmt->execute($params);
- return true;
+ $stmt = $pdo->prepare("UPDATE keys SET " . implode(', ', $sets) . " WHERE id = ?");
+ return $stmt->execute($params);
 }
 
-function deleteKey($id) {
- $pdo = Database::getConnection();
- $stmt = $pdo->prepare("DELETE FROM keys WHERE id = ?");
- $stmt->execute([(int)$id]);
-}
-
-function listKeys($limit = 100) {
- $pdo = Database::getConnection();
- $limit = max(1, min((int)$limit, 500));
- $stmt = $pdo->prepare("SELECT * FROM keys ORDER BY created_at DESC LIMIT :lim");
- $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
- $stmt->execute();
- return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
-
-function listKeysByApp($limit = 20, $app = null) {
- $pdo = Database::getConnection();
- $limit = max(1, min((int)$limit, 500));
- if ($app !== null && $app !== '') {
- $stmt = $pdo->prepare("SELECT * FROM keys WHERE app = :app ORDER BY created_at DESC LIMIT :lim");
- $stmt->bindValue(':app', $app, PDO::PARAM_STR);
- $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
- } else {
- $stmt = $pdo->prepare("SELECT * FROM keys ORDER BY created_at DESC LIMIT :lim");
- $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
- }
- $stmt->execute();
- return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
-
-function logKeyEvent($key, $hwid, $ip, $event, $detail = '') {
- try {
- $pdo = Database::getConnection();
- $pdo->prepare("INSERT INTO key_events (key_text, hwid, ip, event, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)")
- ->execute([$key, $hwid, $ip, $event, $detail, date('Y-m-d H:i:s')]);
- } catch (Exception $e) { /* ignore */ }
-}
-
-function revokeKey($keyData, $reason) {
- updateKey($keyData['id'], [
- 'status' => 'revoked',
- 'ban_reason' => $reason,
- 'session_token' => null,
- ]);
- logKeyEvent($keyData['key'] ?? '', $keyData['bound_hwid'] ?? '', getClientIp(), 'revoke', $reason);
-}
-
-function consumeNonce($nonce, $ttlSeconds = 120) {
- if (!$nonce || strlen($nonce) < 8 || strlen($nonce) > 128) return false;
- $pdo = Database::getConnection();
- $now = date('Y-m-d H:i:s');
- try {
- $pdo->prepare("INSERT INTO used_nonces (nonce, created_at) VALUES (?, ?)")->execute([$nonce, $now]);
- } catch (PDOException $e) {
- return false;
- }
- if (random_int(1, 30) === 1) {
- $pdo->prepare("DELETE FROM used_nonces WHERE created_at < ?")
- ->execute([date('Y-m-d H:i:s', time() - $ttlSeconds * 10)]);
- }
- return true;
-}
-
-function validateKey($key, $hwid = null, $opts = []) {
- $ip = getClientIp();
+function validateKey($key, $hwid = '', $opts = []) {
  $keyData = getKeyByKey($key);
  if (!$keyData) {
- logKeyEvent($key, $hwid, $ip, 'unknown_key', '');
  return ['status' => 'error', 'message' => 'Key không tồn tại!', 'valid' => false];
  }
-
+ if ($keyData['status'] === 'banned' || $keyData['status'] === 'revoked') {
+ return ['status' => 'error', 'message' => 'Key đã bị khóa!', 'valid' => false, 'ban_reason' => $keyData['ban_reason'] ?? ''];
+ }
+ if ($keyData['status'] !== 'active') {
+ return ['status' => 'error', 'message' => 'Key không còn hiệu lực!', 'valid' => false];
+ }
  if ($keyData['expires_at'] !== null && strtotime($keyData['expires_at']) < time()) {
  updateKey($keyData['id'], ['status' => 'expired']);
  return ['status' => 'error', 'message' => 'Key đã hết hạn!', 'valid' => false];
  }
 
- if ($keyData['status'] !== 'active') {
- $msg = 'Key đã bị vô hiệu hóa!';
- if (!empty($keyData['ban_reason'])) $msg = 'Key bị khóa: ' . $keyData['ban_reason'];
- return ['status' => 'error', 'message' => $msg, 'valid' => false];
- }
-
- $hwid = is_string($hwid) ? trim($hwid) : '';
- $limit = max(1, (int)($keyData['hwid_limit'] ?? 1));
-
  $bound = $keyData['bound_hwid'] ?? '';
+ $kicked = false;
+ $sessionToken = $keyData['session_token'] ?? '';
+
  if ($hwid !== '') {
- if ($bound === null || $bound === '') {
- updateKey($keyData['id'], ['bound_hwid' => $hwid]);
- $bound = $hwid;
- logKeyEvent($key, $hwid, $ip, 'bind', 'first device');
- } elseif ($bound !== $hwid) {
- $cnt = (int)($keyData['anomaly_count'] ?? 0) + 1;
- updateKey($keyData['id'], ['anomaly_count' => $cnt]);
- logKeyEvent($key, $hwid, $ip, 'hwid_mismatch', "bound=$bound new=$hwid");
- if ($limit <= 1 || $cnt >= 3) {
- revokeKey($keyData, 'multi-device');
- return ['status' => 'error', 'message' => 'Key đã gắn thiết bị khác!', 'valid' => false, 'kicked' => true];
- }
- return ['status' => 'error', 'message' => 'HWID không khớp!', 'valid' => false];
- }
- }
-
- try {
- $pdo = Database::getConnection();
- $since = date('Y-m-d H:i:s', time() - 300);
- $st = $pdo->prepare(
- "SELECT COUNT(DISTINCT hwid) FROM key_events
- WHERE key_text = ? AND created_at > ?
- AND event IN ('ok','heartbeat','bind')
- AND hwid IS NOT NULL AND hwid != ''"
- );
- $st->execute([$key, $since]);
- $hwidCount = (int)$st->fetchColumn();
- if ($hwidCount >= 3) {
- revokeKey($keyData, 'multi-device-window');
- return ['status' => 'error', 'message' => 'Phát hiện bất thường (nhiều thiết bị).', 'valid' => false];
- }
- } catch (Exception $e) { /* ignore */ }
-
+ if ($bound === '') {
+ // Bind lần đầu
  $sessionToken = bin2hex(random_bytes(16));
- $prevSession = $keyData['session_token'] ?? '';
- $kicked = ($prevSession !== '' && $prevSession !== ($opts['old_session'] ?? ''));
-
  updateKey($keyData['id'], [
- 'times_used' => ((int)$keyData['times_used']) + 1,
- 'last_used_at' => date('Y-m-d H:i:s'),
- 'last_ip' => $ip,
- 'last_seen_at' => date('Y-m-d H:i:s'),
+ 'bound_hwid' => $hwid,
  'session_token' => $sessionToken,
+ 'last_seen_at' => date('Y-m-d H:i:s'),
+ 'last_ip' => getClientIp(),
+ 'times_used' => ((int)($keyData['times_used'] ?? 0)) + 1,
+ 'last_used_at' => date('Y-m-d H:i:s'),
  ]);
- logKeyEvent($key, $hwid, $ip, 'ok', $kicked ? 'kick_old' : 'login');
+ } elseif ($bound !== $hwid) {
+ // HWID khác → đá phiên cũ
+ $oldSession = $opts['old_session'] ?? '';
+ $sessionToken = bin2hex(random_bytes(16));
+ updateKey($keyData['id'], [
+ 'bound_hwid' => $hwid,
+ 'session_token' => $sessionToken,
+ 'last_seen_at' => date('Y-m-d H:i:s'),
+ 'last_ip' => getClientIp(),
+ 'times_used' => ((int)($keyData['times_used'] ?? 0)) + 1,
+ 'last_used_at' => date('Y-m-d H:i:s'),
+ ]);
+ $kicked = true;
+ } else {
+ // Cùng HWID
+ if (empty($sessionToken)) {
+ $sessionToken = bin2hex(random_bytes(16));
+ }
+ updateKey($keyData['id'], [
+ 'session_token' => $sessionToken,
+ 'last_seen_at' => date('Y-m-d H:i:s'),
+ 'last_ip' => getClientIp(),
+ 'times_used' => ((int)($keyData['times_used'] ?? 0)) + 1,
+ 'last_used_at' => date('Y-m-d H:i:s'),
+ ]);
+ }
+ }
 
  return [
  'status' => 'success',
- 'message' => $kicked ? 'Key hợp lệ (phiên cũ đã bị kick).' : 'Key hợp lệ!',
+ 'message' => $kicked ? 'Key hợp lệ! (đã đá phiên cũ)' : 'Key hợp lệ!',
  'valid' => true,
  'session' => $sessionToken,
  'kicked_old' => $kicked,
@@ -298,7 +231,7 @@ function clearBotState($chatId) {
 }
 
 function sendTelegramMessage($chatId, $text, $keyboard = null) {
- if (!defined('TELEGRAM_BOT_TOKEN') || TELEGRAM_BOT_TOKEN === 'YOUR_BOT_TOKEN') {
+ if (!defined('TELEGRAM_BOT_TOKEN') || TELEGRAM_BOT_TOKEN === '' || TELEGRAM_BOT_TOKEN === 'YOUR_BOT_TOKEN') {
  return false;
  }
  $url = "https://api.telegram.org/bot" . TELEGRAM_BOT_TOKEN . "/sendMessage";
@@ -372,4 +305,21 @@ function checkRateLimit($identifier, $maxRequests = 30, $windowSeconds = 60) {
  ->execute([date('Y-m-d H:i:s', $now - 3600)]);
  }
  return true;
+}
+
+function consumeNonce($nonce) {
+ if ($nonce === '' || strlen($nonce) > 64) return false;
+ $pdo = Database::getConnection();
+ try {
+ $pdo->prepare("INSERT INTO used_nonces (nonce, created_at) VALUES (?, ?)")
+ ->execute([$nonce, date('Y-m-d H:i:s')]);
+ // cleanup cũ
+ if (random_int(1, 30) === 1) {
+ $pdo->prepare("DELETE FROM used_nonces WHERE created_at < ?")
+ ->execute([date('Y-m-d H:i:s', time() - 3600)]);
+ }
+ return true;
+ } catch (PDOException $e) {
+ return false; // đã dùng
+ }
 }
