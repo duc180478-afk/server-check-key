@@ -126,6 +126,7 @@ tr:hover td{background:color-mix(in srgb,var(--grid) 45%,transparent);}
     <span class="who"><?= htmlspecialchars($name) ?></span>
     <span class="pill <?= $isReseller?'reseller':'' ?>"><?= $isReseller?'RESELLER':'ADMIN' ?></span>
     <?php if (!$isReseller): ?><a class="tbtn" href="config.php">Cấu hình getkey</a><?php endif; ?>
+    <a class="tbtn" href="mods.php">Mod Skin</a>
     <a class="tbtn" href="logout.php">Logout</a>
   </div>
 </header>
