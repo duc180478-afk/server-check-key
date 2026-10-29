@@ -14,6 +14,11 @@ $KEYGEN_APPS = [
         'prefix'    => 'FLFF',
         'shortlink' => 'https://link4m.net/go/Q9w2R',
     ],
+    'modskin' => [
+        'label'     => 'Mod Skin FF',
+        'prefix'    => 'MODSKIN',
+        'shortlink' => 'https://link4m.net/go/Q9w2R',
+    ],
     'proxy' => [
         'label'     => 'Proxy FF',
         'prefix'    => 'PRX',
