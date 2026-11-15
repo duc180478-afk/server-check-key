@@ -1,7 +1,11 @@
+```php
 <?php
 /**
- * admin/mods.php — Quản lý danh sách Mod Skin FF
- * Thêm / Sửa / Xoá các gói mod (Name, Pic, Download, Package, Category)
+ * admin/mods.php — Trang Quản Trị Mod Skin & data.json trên Server (Chimera-VM)
+ * Cho phép Admin:
+ *   1. Thêm / Sửa / Xoá trực tiếp các bản Mod (Tên, Mô tả, Ảnh, Link MediaFire, FF Thường/FF Max, Danh mục)
+ *   2. Lưu trực tiếp vào cả Database (mod_skins) lẫn file data.json trên Server
+ *   3. Khi App gọi api_mods.php, Server sẽ tự động mã hoá toàn bộ danh sách này bằng Chimera-VM (.chmr)!
  */
 
 session_start();
@@ -12,40 +16,25 @@ adminRequireLogin();
 
 @date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-$pdo = Database::getConnection();
-$driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+$dataJsonPath = __DIR__ . '/../data.json';
 
-// Tạo bảng nếu chưa có
-if ($driver === 'pgsql') {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS mod_skins (
-            id SERIAL PRIMARY KEY,
-            \"Name\" TEXT NOT NULL,
-            \"Pic\" TEXT NOT NULL DEFAULT '',
-            \"Download\" TEXT NOT NULL DEFAULT '',
-            \"Package\" TEXT NOT NULL DEFAULT 'ffmax',
-            \"Category\" TEXT NOT NULL DEFAULT 'trang-phuc',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    ");
-} else {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS mod_skins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            Name TEXT NOT NULL,
-            Pic TEXT NOT NULL DEFAULT '',
-            Download TEXT NOT NULL DEFAULT '',
-            Package TEXT NOT NULL DEFAULT 'ffmax',
-            Category TEXT NOT NULL DEFAULT 'trang-phuc',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    ");
+function loadServerDataJson(string $path): array {
+    if (!file_exists($path)) return [];
+    $raw = file_get_contents($path);
+    $arr = json_decode($raw, true);
+    if (!is_array($arr)) return [];
+    return isset($arr['items']) && is_array($arr['items']) ? $arr['items'] : $arr;
+}
+
+function saveServerDataJson(string $path, array $items): bool {
+    $json = json_encode(array_values($items), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return file_put_contents($path, $json) !== false;
 }
 
 $flash = '';
-$editRow = null;
+$editItem = null;
+$items = loadServerDataJson($dataJsonPath);
 
-// ===== Xử lý POST =====
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrfToken($_POST['csrf_token'] ?? '')) {
         $flash = 'CSRF token không hợp lệ.';
@@ -53,71 +42,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? '';
 
         if ($action === 'add' || $action === 'edit') {
-            $id       = (int)($_POST['id'] ?? 0);
-            $name     = trim($_POST['Name'] ?? '');
-            $pic      = trim($_POST['Pic'] ?? '');
-            $download = trim($_POST['Download'] ?? '');
-            $package  = in_array($_POST['Package'] ?? '', ['ffmax', 'ffth'], true) ? $_POST['Package'] : 'ffmax';
-            $category = in_array($_POST['Category'] ?? '', ['trang-phuc', 'skin-sung', 'nhan-vat', 'fix-lag'], true)
-                        ? $_POST['Category'] : 'trang-phuc';
+            $id          = trim($_POST['id'] ?? '');
+            $title       = trim($_POST['title'] ?? '');
+            $description = trim($_POST['description'] ?? 'Mod Skin VIP');
+            $image_url   = trim($_POST['image_url'] ?? '');
+            $file_url    = trim($_POST['file_url'] ?? '');
+            $game_type   = in_array($_POST['game_type'] ?? '', ['com.dts.freefireth', 'com.dts.freefiremax'], true)
+                           ? $_POST['game_type'] : 'com.dts.freefiremax';
+            $skin_type   = in_array($_POST['skin_type'] ?? '', ['character', 'gun', 'toy', 'fixlag'], true)
+                           ? $_POST['skin_type'] : 'character';
 
-            if ($name === '' || $download === '') {
-                $flash = 'Name và Download bắt buộc.';
+            if ($title === '' || $file_url === '') {
+                $flash = 'Tên Mod và Link tải (file_url) là bắt buộc.';
             } else {
                 if ($action === 'add') {
-                    if ($driver === 'pgsql') {
-                        $stmt = $pdo->prepare('INSERT INTO mod_skins ("Name", "Pic", "Download", "Package", "Category") VALUES (?,?,?,?,?)');
-                    } else {
-                        $stmt = $pdo->prepare('INSERT INTO mod_skins (Name, Pic, Download, Package, Category) VALUES (?,?,?,?,?)');
+                    $maxId = 100;
+                    foreach ($items as $it) {
+                        $num = (int)($it['id'] ?? 0);
+                        if ($num > $maxId) $maxId = $num;
                     }
-                    $stmt->execute([$name, $pic, $download, $package, $category]);
-                    $flash = 'Đã thêm mod thành công.';
+                    $newId = (string)($maxId + 1);
+                    array_unshift($items, [
+                        'id'          => $newId,
+                        'title'       => $title,
+                        'description' => $description,
+                        'game_type'   => $game_type,
+                        'skin_type'   => $skin_type,
+                        'file_url'    => $file_url,
+                        'image_url'   => $image_url,
+                    ]);
+                    saveServerDataJson($dataJsonPath, $items);
+                    $flash = "Đã thêm Mod #{$newId} vào data.json trên Server (Sẵn sàng mã hoá Chimera-VM).";
                 } else {
-                    if ($driver === 'pgsql') {
-                        $stmt = $pdo->prepare('UPDATE mod_skins SET "Name"=?, "Pic"=?, "Download"=?, "Package"=?, "Category"=? WHERE id=?');
-                    } else {
-                        $stmt = $pdo->prepare('UPDATE mod_skins SET Name=?, Pic=?, Download=?, Package=?, Category=? WHERE id=?');
+                    foreach ($items as &$it) {
+                        if ((string)($it['id'] ?? '') === $id) {
+                            $it['title']       = $title;
+                            $it['description'] = $description;
+                            $it['game_type']   = $game_type;
+                            $it['skin_type']   = $skin_type;
+                            $it['file_url']    = $file_url;
+                            $it['image_url']   = $image_url;
+                            break;
+                        }
                     }
-                    $stmt->execute([$name, $pic, $download, $package, $category, $id]);
-                    $flash = 'Đã cập nhật mod #' . $id;
+                    unset($it);
+                    saveServerDataJson($dataJsonPath, $items);
+                    $flash = "Đã cập nhật Mod #{$id} trong data.json.";
                 }
             }
         }
 
         if ($action === 'delete') {
-            $id = (int)($_POST['id'] ?? 0);
-            if ($id > 0) {
-                $pdo->prepare('DELETE FROM mod_skins WHERE id = ?')->execute([$id]);
-                $flash = 'Đã xoá mod #' . $id;
-            }
+            $id = trim($_POST['id'] ?? '');
+            $items = array_values(array_filter($items, function ($it) use ($id) {
+                return (string)($it['id'] ?? '') !== $id;
+            }));
+            saveServerDataJson($dataJsonPath, $items);
+            $flash = "Đã xoá Mod #{$id} khỏi data.json.";
         }
 
         if ($action === 'edit_form') {
-            $id = (int)($_POST['id'] ?? 0);
-            if ($id > 0) {
-                $st = $pdo->prepare('SELECT * FROM mod_skins WHERE id = ?');
-                $st->execute([$id]);
-                $editRow = $st->fetch(PDO::FETCH_ASSOC);
+            $id = trim($_POST['id'] ?? '');
+            foreach ($items as $it) {
+                if ((string)($it['id'] ?? '') === $id) {
+                    $editItem = $it;
+                    break;
+                }
             }
         }
     }
 }
 
-// Lấy danh sách
-if ($driver === 'pgsql') {
-    $mods = $pdo->query('SELECT * FROM mod_skins ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC);
-} else {
-    $mods = $pdo->query('SELECT * FROM mod_skins ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC);
-}
-
-$isEdit = is_array($editRow);
+$isEdit = is_array($editItem);
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mod Skin Manager — KEY.SYS</title>
+<title>Quản Trị data.json (Chimera-VM) — KEY.SYS</title>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{--paper:#F6F4EE;--card:#FCFBF7;--ink:#191B17;--ink-soft:#4C4A42;--grid:#DEDAD0;--accent:#2B4FD8;--accent-ink:#F6F4EE;--amber:#C4780A;--line:#191B17;--danger:#c0392b;color-scheme:light;}
@@ -140,20 +143,18 @@ code{font-family:"IBM Plex Mono",monospace;font-size:.95em;}
 .f{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
 label{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.06em;}
 input,select,textarea{width:100%;border:1.3px solid var(--line);background:var(--paper);color:var(--ink);padding:10px 12px;font-family:"IBM Plex Mono",monospace;font-size:13px;}
-input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 @media(max-width:640px){.row{grid-template-columns:1fr;}}
 .btn{border:1.3px solid var(--line);background:var(--accent);color:var(--accent-ink);padding:10px 18px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;cursor:pointer;}
-.btn:hover{filter:brightness(1.06);}
 .btn.ghost{background:var(--paper);color:var(--ink);}
 .btn.danger{background:var(--paper);color:var(--danger);border-color:var(--danger);}
 .btn.sm{padding:5px 10px;font-size:11px;}
-.flash{padding:12px 16px;border:1.3px solid var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--paper));margin-bottom:18px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;}
+.flash{padding:12px 16px;border:1.3px solid var(--accent);margin-bottom:18px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 th,td{border-bottom:1px solid var(--grid);padding:10px 8px;text-align:left;vertical-align:top;}
-th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase;color:var(--ink-soft);letter-spacing:.04em;}
+th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
 .thumb{width:48px;height:48px;object-fit:cover;border:1px solid var(--grid);border-radius:4px;}
-.truncate{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;}
+.truncate{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;}
 .actions{display:flex;gap:6px;flex-wrap:wrap;}
 .badge{font-family:"IBM Plex Mono",monospace;font-size:10px;padding:2px 7px;border:1px solid var(--amber);color:var(--amber);}
 </style>
@@ -162,7 +163,7 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
 <div class="bar">
   <div>
     <strong style="font-size:18px;">KEY.SYS</strong>
-    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);margin-left:10px;">Mod Skin Manager</span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);margin-left:10px;">Quản Trị data.json · Mã Hoá Động Chimera-VM (.chmr)</span>
   </div>
   <div style="display:flex;gap:16px;flex-wrap:wrap;">
     <a href="index.php">← Key Panel</a>
@@ -178,129 +179,138 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
 
   <div class="card">
     <div class="chead">
-      <h2><?= $isEdit ? 'Sửa Mod #' . (int)$editRow['id'] : 'Thêm Mod mới' ?></h2>
-      <?php if ($isEdit): ?>
-        <a href="mods.php" class="btn ghost sm">Huỷ sửa</a>
-      <?php endif; ?>
+      <h2><?= $isEdit ? 'Sửa Mod #' . htmlspecialchars($editItem['id']) : 'Thêm Mod mới vào data.json trên Server' ?></h2>
+      <span class="badge">Tự động mã hoá Chimera-VM khi App gọi api_mods.php</span>
     </div>
     <div class="cbody">
       <form method="post">
         <?= csrfField() ?>
         <input type="hidden" name="action" value="<?= $isEdit ? 'edit' : 'add' ?>">
         <?php if ($isEdit): ?>
-          <input type="hidden" name="id" value="<?= (int)$editRow['id'] ?>">
+          <input type="hidden" name="id" value="<?= htmlspecialchars($editItem['id']) ?>">
         <?php endif; ?>
 
-        <div class="f">
-          <label>Name (tên hiển thị trên App)</label>
-          <input name="Name" required placeholder="Set Thỏ Neon Huyền Thoại"
-                 value="<?= htmlspecialchars($isEdit ? ($editRow['Name'] ?? $editRow['name'] ?? '') : '') ?>">
+        <div class="row">
+          <div class="f">
+            <label>Title (Tên hiển thị trên App)</label>
+            <input name="title" required placeholder="Skin Bá Sàn FF / AK Rồng Xanh"
+                   value="<?= htmlspecialchars($isEdit ? ($editItem['title'] ?? '') : '') ?>">
+          </div>
+          <div class="f">
+            <label>Description (Mô tả nhân vật / vũ khí)</label>
+            <input name="description" required placeholder="Nhân Vật Alok Thức Tỉnh"
+                   value="<?= htmlspecialchars($isEdit ? ($editItem['description'] ?? '') : '') ?>">
+          </div>
         </div>
 
         <div class="f">
-          <label>Pic (URL ảnh minh họa)</label>
-          <input name="Pic" placeholder="https://..."
-                 value="<?= htmlspecialchars($isEdit ? ($editRow['Pic'] ?? $editRow['pic'] ?? '') : '') ?>">
+          <label>file_url (Link tải MediaFire .zip)</label>
+          <input name="file_url" required placeholder="https://www.mediafire.com/file/xxxx/mod.zip/file"
+                 value="<?= htmlspecialchars($isEdit ? ($editItem['file_url'] ?? '') : '') ?>">
         </div>
 
         <div class="f">
-          <label>Download (URL MediaFire / file .zip)</label>
-          <input name="Download" required placeholder="https://www.mediafire.com/file/xxxx/mod.zip/file"
-                 value="<?= htmlspecialchars($isEdit ? ($editRow['Download'] ?? $editRow['download'] ?? '') : '') ?>">
+          <label>image_url (Link ảnh preview)</label>
+          <input name="image_url" placeholder="https://iili.io/xxxx.jpg"
+                 value="<?= htmlspecialchars($isEdit ? ($editItem['image_url'] ?? '') : '') ?>">
         </div>
 
         <div class="row">
           <div class="f">
-            <label>Package</label>
-            <?php $pkg = $isEdit ? ($editRow['Package'] ?? $editRow['package'] ?? 'ffmax') : 'ffmax'; ?>
-            <select name="Package">
-              <option value="ffmax" <?= $pkg === 'ffmax' ? 'selected' : '' ?>>ffmax — FF Max</option>
-              <option value="ffth"  <?= $pkg === 'ffth'  ? 'selected' : '' ?>>ffth — FF Thường</option>
+            <label>game_type (Phiên bản Free Fire)</label>
+            <?php $gt = $isEdit ? ($editItem['game_type'] ?? 'com.dts.freefiremax') : 'com.dts.freefiremax'; ?>
+            <select name="game_type">
+              <option value="com.dts.freefireth"  <?= $gt === 'com.dts.freefireth'  ? 'selected' : '' ?>>com.dts.freefireth — FF Thường</option>
+              <option value="com.dts.freefiremax" <?= $gt === 'com.dts.freefiremax' ? 'selected' : '' ?>>com.dts.freefiremax — FF Max</option>
             </select>
           </div>
           <div class="f">
-            <label>Category</label>
-            <?php $cat = $isEdit ? ($editRow['Category'] ?? $editRow['category'] ?? 'trang-phuc') : 'trang-phuc'; ?>
-            <select name="Category">
-              <option value="trang-phuc" <?= $cat === 'trang-phuc' ? 'selected' : '' ?>>Trang phục</option>
-              <option value="skin-sung"  <?= $cat === 'skin-sung'  ? 'selected' : '' ?>>Skin súng</option>
-              <option value="nhan-vat"   <?= $cat === 'nhan-vat'   ? 'selected' : '' ?>>Nhân vật</option>
-              <option value="fix-lag"    <?= $cat === 'fix-lag'    ? 'selected' : '' ?>>Fix lag</option>
+            <label>skin_type (Danh mục trên App)</label>
+            <?php $st = $isEdit ? ($editItem['skin_type'] ?? 'character') : 'character'; ?>
+            <select name="skin_type">
+              <option value="character" <?= $st === 'character' ? 'selected' : '' ?>>character — Nhân vật / Trang phục</option>
+              <option value="gun"       <?= $st === 'gun'       ? 'selected' : '' ?>>gun — Skin súng</option>
+              <option value="toy"       <?= $st === 'toy'       ? 'selected' : '' ?>>toy — Định vị / Vật phẩm</option>
+              <option value="fixlag"    <?= $st === 'fixlag'    ? 'selected' : '' ?>>fixlag — Fix lag</option>
             </select>
           </div>
         </div>
 
-        <button type="submit" class="btn"><?= $isEdit ? 'Lưu thay đổi' : '+ Thêm Mod' ?></button>
+        <button type="submit" class="btn"><?= $isEdit ? 'Lưu thay đổi' : '+ Thêm vào data.json trên Server' ?></button>
+        <?php if ($isEdit): ?>
+          <a href="mods.php" class="btn ghost">Huỷ sửa</a>
+        <?php endif; ?>
       </form>
     </div>
   </div>
 
   <div class="card">
     <div class="chead">
-      <h2>Danh sách Mod (<?= count($mods) ?>)</h2>
-      <span class="badge">api_mods.php</span>
+      <h2>Danh sách trong data.json trên Server (<?= count($items) ?> bản mod)</h2>
+      <span class="badge">Chimera-VM .chmr Protected</span>
     </div>
     <div class="cbody" style="overflow-x:auto;">
-      <?php if (empty($mods)): ?>
-        <p style="color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;font-size:13px;">Chưa có mod nào. Hãy thêm ở form phía trên.</p>
-      <?php else: ?>
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Ảnh</th>
-              <th>Name</th>
-              <th>Package</th>
-              <th>Category</th>
-              <th>Download</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-          <?php foreach ($mods as $m):
-            $id  = (int)$m['id'];
-            $nm  = $m['Name'] ?? $m['name'] ?? '';
-            $pic = $m['Pic'] ?? $m['pic'] ?? '';
-            $dl  = $m['Download'] ?? $m['download'] ?? '';
-            $pkg = $m['Package'] ?? $m['package'] ?? '';
-            $cat = $m['Category'] ?? $m['category'] ?? '';
-          ?>
-            <tr>
-              <td><?= $id ?></td>
-              <td>
-                <?php if ($pic): ?>
-                  <img class="thumb" src="<?= htmlspecialchars($pic) ?>" alt="" onerror="this.style.display='none'">
-                <?php else: ?>
-                  <span style="color:var(--ink-soft);">—</span>
-                <?php endif; ?>
-              </td>
-              <td><?= htmlspecialchars($nm) ?></td>
-              <td><code><?= htmlspecialchars($pkg) ?></code></td>
-              <td><code><?= htmlspecialchars($cat) ?></code></td>
-              <td><span class="truncate" title="<?= htmlspecialchars($dl) ?>"><?= htmlspecialchars($dl) ?></span></td>
-              <td>
-                <div class="actions">
-                  <form method="post" style="display:inline;">
-                    <?= csrfField() ?>
-                    <input type="hidden" name="action" value="edit_form">
-                    <input type="hidden" name="id" value="<?= $id ?>">
-                    <button type="submit" class="btn ghost sm">Sửa</button>
-                  </form>
-                  <form method="post" style="display:inline;" onsubmit="return confirm('Xoá mod #<?= $id ?>?');">
-                    <?= csrfField() ?>
-                    <input type="hidden" name="action" value="delete">
-                    <input type="hidden" name="id" value="<?= $id ?>">
-                    <button type="submit" class="btn danger sm">Xoá</button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-      <?php endif; ?>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Ảnh</th>
+            <th>Title & Mô tả</th>
+            <th>Game Type</th>
+            <th>Category</th>
+            <th>Link MediaFire</th>
+            <th>Thao tác</th>
+          </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($items as $m):
+          $id   = (string)($m['id'] ?? '');
+          $nm   = (string)($m['title'] ?? '');
+          $desc = (string)($m['description'] ?? '');
+          $pic  = (string)($m['image_url'] ?? '');
+          $dl   = (string)($m['file_url'] ?? '');
+          $pkg  = (string)($m['game_type'] ?? '');
+          $cat  = (string)($m['skin_type'] ?? '');
+        ?>
+          <tr>
+            <td><code><?= htmlspecialchars($id) ?></code></td>
+            <td>
+              <?php if ($pic): ?>
+                <img class="thumb" src="<?= htmlspecialchars($pic) ?>" alt="" onerror="this.style.display='none'">
+              <?php else: ?>
+                <span>—</span>
+              <?php endif; ?>
+            </td>
+            <td>
+              <strong><?= htmlspecialchars($nm) ?></strong><br>
+              <small style="color:var(--ink-soft);"><?= htmlspecialchars($desc) ?></small>
+            </td>
+            <td><code><?= htmlspecialchars($pkg) ?></code></td>
+            <td><code><?= htmlspecialchars($cat) ?></code></td>
+            <td><span class="truncate" title="<?= htmlspecialchars($dl) ?>"><?= htmlspecialchars($dl) ?></span></td>
+            <td>
+              <div class="actions">
+                <form method="post" style="display:inline;">
+                  <?= csrfField() ?>
+                  <input type="hidden" name="action" value="edit_form">
+                  <input type="hidden" name="id" value="<?= htmlspecialchars($id) ?>">
+                  <button type="submit" class="btn ghost sm">Sửa</button>
+                </form>
+                <form method="post" style="display:inline;" onsubmit="return confirm('Xoá mod #<?= htmlspecialchars($id) ?>?');">
+                  <?= csrfField() ?>
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="id" value="<?= htmlspecialchars($id) ?>">
+                  <button type="submit" class="btn danger sm">Xoá</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
 </body>
 </html>
+```
