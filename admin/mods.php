@@ -1,39 +1,62 @@
-```php
 <?php
 /**
- * admin/mods.php — Trang Quản Trị Mod Skin & data.json trên Server (Chimera-VM)
- * Cho phép Admin:
- *   1. Thêm / Sửa / Xoá trực tiếp các bản Mod (Tên, Mô tả, Ảnh, Link MediaFire, FF Thường/FF Max, Danh mục)
- *   2. Lưu trực tiếp vào cả Database (mod_skins) lẫn file data.json trên Server
- *   3. Khi App gọi api_mods.php, Server sẽ tự động mã hoá toàn bộ danh sách này bằng Chimera-VM (.chmr)!
+ * admin/mods.php — Trang Quản Trị Mod Skin làm việc trực tiếp trên file ĐÃ MÃ HOÁ `data.chmr`
+ * Tuyệt đối KHÔNG lưu file data.json dạng rõ (plaintext) trên Server hay GitHub repo!
+ *
+ * Cơ chế hoạt động:
+ *   1. Khi Admin mở trang này: Server đọc file nhị phân `../data.chmr` và giải mã ngay trên RAM
+ *      bằng `ChimeraServerCompiler::decryptEnvelopeToString()`.
+ *   2. Khi Admin Thêm / Sửa / Xoá bất kỳ bản Mod hoặc URL MediaFire nào:
+ *      Server lập tức biên dịch lại toàn bộ danh sách bằng `ChimeraServerCompiler::compileStringToEnvelope()`
+ *      (sinh bảng 8 V-Opcode đa hình mới + 16-byte Server Key Share mới) và ghi đè vào `../data.chmr`!
  */
 
 session_start();
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../functions.php';
+require_once __DIR__ . '/../chimera_compiler.php';
 require_once __DIR__ . '/admin_auth.php';
 adminRequireLogin();
 
 @date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-$dataJsonPath = __DIR__ . '/../data.json';
+$dataChmrPath = __DIR__ . '/../data.chmr';
+$legacyJsonPath = __DIR__ . '/../data.json';
 
-function loadServerDataJson(string $path): array {
-    if (!file_exists($path)) return [];
-    $raw = file_get_contents($path);
-    $arr = json_decode($raw, true);
-    if (!is_array($arr)) return [];
-    return isset($arr['items']) && is_array($arr['items']) ? $arr['items'] : $arr;
+function loadServerEncryptedChmr(string $chmrPath, string $legacyJsonPath): array {
+    if (file_exists($chmrPath)) {
+        $envBin = file_get_contents($chmrPath);
+        if ($envBin !== false && strlen($envBin) > 24) {
+            $plainJson = ChimeraServerCompiler::decryptEnvelopeToString($envBin);
+            $arr = json_decode($plainJson, true);
+            if (is_array($arr)) {
+                return isset($arr['items']) && is_array($arr['items']) ? $arr['items'] : $arr;
+            }
+        }
+    }
+    // Tự động chuyển đổi từ data.json sang data.chmr và xoá data.json nếu lần đầu nâng cấp
+    if (file_exists($legacyJsonPath)) {
+        $raw = file_get_contents($legacyJsonPath);
+        $arr = json_decode($raw, true);
+        if (is_array($arr)) {
+            $items = isset($arr['items']) && is_array($arr['items']) ? $arr['items'] : $arr;
+            saveServerEncryptedChmr($chmrPath, $items);
+            @unlink($legacyJsonPath);
+            return $items;
+        }
+    }
+    return [];
 }
 
-function saveServerDataJson(string $path, array $items): bool {
-    $json = json_encode(array_values($items), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    return file_put_contents($path, $json) !== false;
+function saveServerEncryptedChmr(string $chmrPath, array $items): bool {
+    $compactJson = json_encode(array_values($items), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $envelopeBin = ChimeraServerCompiler::compileStringToEnvelope($compactJson);
+    return file_put_contents($chmrPath, $envelopeBin, LOCK_EX) !== false;
 }
 
 $flash = '';
 $editItem = null;
-$items = loadServerDataJson($dataJsonPath);
+$items = loadServerEncryptedChmr($dataChmrPath, $legacyJsonPath);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -71,8 +94,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'file_url'    => $file_url,
                         'image_url'   => $image_url,
                     ]);
-                    saveServerDataJson($dataJsonPath, $items);
-                    $flash = "Đã thêm Mod #{$newId} vào data.json trên Server (Sẵn sàng mã hoá Chimera-VM).";
+                    saveServerEncryptedChmr($dataChmrPath, $items);
+                    $flash = "Đã thêm Mod #{$newId} và mã hoá lại file data.chmr bằng Chimera-VM!";
                 } else {
                     foreach ($items as &$it) {
                         if ((string)($it['id'] ?? '') === $id) {
@@ -86,8 +109,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
                     unset($it);
-                    saveServerDataJson($dataJsonPath, $items);
-                    $flash = "Đã cập nhật Mod #{$id} trong data.json.";
+                    saveServerEncryptedChmr($dataChmrPath, $items);
+                    $flash = "Đã cập nhật Mod #{$id} và mã hoá lại file data.chmr bằng Chimera-VM!";
                 }
             }
         }
@@ -97,8 +120,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $items = array_values(array_filter($items, function ($it) use ($id) {
                 return (string)($it['id'] ?? '') !== $id;
             }));
-            saveServerDataJson($dataJsonPath, $items);
-            $flash = "Đã xoá Mod #{$id} khỏi data.json.";
+            saveServerEncryptedChmr($dataChmrPath, $items);
+            $flash = "Đã xoá Mod #{$id} và mã hoá lại file data.chmr!";
+        }
+
+        if ($action === 'reencrypt') {
+            saveServerEncryptedChmr($dataChmrPath, $items);
+            $flash = "Đã đảo lại bảng Opcode Map & Server Key Share mới cho file data.chmr!";
         }
 
         if ($action === 'edit_form') {
@@ -120,7 +148,7 @@ $isEdit = is_array($editItem);
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Quản Trị data.json (Chimera-VM) — KEY.SYS</title>
+<title>Quản Trị data.chmr (Chimera-VM Encrypted) — KEY.SYS</title>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{--paper:#F6F4EE;--card:#FCFBF7;--ink:#191B17;--ink-soft:#4C4A42;--grid:#DEDAD0;--accent:#2B4FD8;--accent-ink:#F6F4EE;--amber:#C4780A;--line:#191B17;--danger:#c0392b;color-scheme:light;}
@@ -163,7 +191,7 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
 <div class="bar">
   <div>
     <strong style="font-size:18px;">KEY.SYS</strong>
-    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);margin-left:10px;">Quản Trị data.json · Mã Hoá Động Chimera-VM (.chmr)</span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);margin-left:10px;">Quản Trị data.chmr · Lưu Trữ Mã Hoá Chimera-VM Trên Server</span>
   </div>
   <div style="display:flex;gap:16px;flex-wrap:wrap;">
     <a href="index.php">← Key Panel</a>
@@ -179,8 +207,12 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
 
   <div class="card">
     <div class="chead">
-      <h2><?= $isEdit ? 'Sửa Mod #' . htmlspecialchars($editItem['id']) : 'Thêm Mod mới vào data.json trên Server' ?></h2>
-      <span class="badge">Tự động mã hoá Chimera-VM khi App gọi api_mods.php</span>
+      <h2><?= $isEdit ? 'Sửa Mod #' . htmlspecialchars($editItem['id']) : 'Thêm Mod mới vào file mã hoá data.chmr' ?></h2>
+      <form method="post" style="display:inline;">
+        <?= csrfField() ?>
+        <input type="hidden" name="action" value="reencrypt">
+        <button type="submit" class="btn ghost sm">Đảo lại Opcode Map & Key Share (.chmr)</button>
+      </form>
     </div>
     <div class="cbody">
       <form method="post">
@@ -236,7 +268,7 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
           </div>
         </div>
 
-        <button type="submit" class="btn"><?= $isEdit ? 'Lưu thay đổi' : '+ Thêm vào data.json trên Server' ?></button>
+        <button type="submit" class="btn"><?= $isEdit ? 'Lưu & Mã hoá vào data.chmr' : '+ Thêm & Mã hoá vào data.chmr' ?></button>
         <?php if ($isEdit): ?>
           <a href="mods.php" class="btn ghost">Huỷ sửa</a>
         <?php endif; ?>
@@ -246,8 +278,8 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
 
   <div class="card">
     <div class="chead">
-      <h2>Danh sách trong data.json trên Server (<?= count($items) ?> bản mod)</h2>
-      <span class="badge">Chimera-VM .chmr Protected</span>
+      <h2>Danh sách giải mã từ data.chmr trên Server (<?= count($items) ?> bản mod)</h2>
+      <span class="badge">Zero Plaintext JSON on Server</span>
     </div>
     <div class="cbody" style="overflow-x:auto;">
       <table>
@@ -313,4 +345,3 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
 </div>
 </body>
 </html>
-```
