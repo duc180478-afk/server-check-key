@@ -1,24 +1,13 @@
-```php
 <?php
 /**
- * api_mods.php — Phiên bản nâng cấp Chimera-VM Server-Side Obfuscation
- * Lấy danh sách Mod Skin từ bảng quản trị (admin/mods.php) + data.json trên Server,
- * sau đó biên dịch động sang định dạng nhị phân đa hình Chimera-VM (.chmr):
- *   [8-byte Dynamic Opcode Map] + [16-byte Server Key Share] + [Payload .chmr]
- * và ký xác thực HMAC-SHA256 trước khi trả về cho App Android giải mã trong RAM C++.
+ * api_mods.php — Phục vụ trực tiếp từ file nhị phân đã mã hoá `data.chmr` trên Server
+ * Trên Server tuyệt đối KHÔNG lưu trữ data.json dạng rõ (plaintext)!
  *
- * Client gửi (POST hoặc GET):
- *   key, hwid, app=modskin, ts, nonce, sig
- * Canonical chữ ký request:
- *   mods|{key}|{hwid}|{ts}|{nonce}
- *
- * Response:
- *   {
- *     "mode": "chimera_v1",
- *     "chmr": "<base64([8B Opcode Map][16B Server Key Share][Payload .chmr])>",
- *     "t": <unix_timestamp>,
- *     "s": "<HMAC-SHA256(chmr + '|chimera_v1|' + t, APP_SECRET)>"
- *   }
+ * Khi App Android gửi request đã ký HMAC-SHA256 ("mods|key|hwid|ts|nonce"):
+ *   1. Kiểm tra Key hợp lệ, còn hạn và khớp HWID.
+ *   2. Nếu chỉ dùng `data.chmr` (quản trị qua `admin/mods.php`), Server đọc thẳng khung nhị phân
+ *      `[8B Dynamic Opcode Map][16B Server Key Share][Payload .chmr]` từ `data.chmr`,
+ *      ký `HMAC-SHA256` và trả về ngay trong < 2ms!
  */
 
 require_once __DIR__ . '/config.php';
@@ -113,103 +102,15 @@ if (!empty($kd['bound_hwid']) && $kd['bound_hwid'] !== $hwid) {
     exit;
 }
 
-$pdo = Database::getConnection();
-$driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
-
-if ($driver === 'pgsql') {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS mod_skins (
-            id SERIAL PRIMARY KEY,
-            \"Name\" TEXT NOT NULL,
-            \"Description\" TEXT NOT NULL DEFAULT '',
-            \"Pic\" TEXT NOT NULL DEFAULT '',
-            \"Download\" TEXT NOT NULL DEFAULT '',
-            \"Package\" TEXT NOT NULL DEFAULT 'com.dts.freefiremax',
-            \"Category\" TEXT NOT NULL DEFAULT 'character',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    ");
+// Đọc trực tiếp file nhị phân đã mã hoá Chimera-VM `data.chmr` trên Server
+$dataChmrFile = __DIR__ . '/data.chmr';
+if (file_exists($dataChmrFile)) {
+    $chimeraEnvelopeBin = file_get_contents($dataChmrFile);
 } else {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS mod_skins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            Name TEXT NOT NULL,
-            Description TEXT NOT NULL DEFAULT '',
-            Pic TEXT NOT NULL DEFAULT '',
-            Download TEXT NOT NULL DEFAULT '',
-            Package TEXT NOT NULL DEFAULT 'com.dts.freefiremax',
-            Category TEXT NOT NULL DEFAULT 'character',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    ");
+    $chimeraEnvelopeBin = ChimeraServerCompiler::compileStringToEnvelope("[]");
+    file_put_contents($dataChmrFile, $chimeraEnvelopeBin, LOCK_EX);
 }
 
-// 1. Lấy các bản mod thêm/sửa từ trang quản trị (admin/mods.php) trong DB
-if ($driver === 'pgsql') {
-    $stmt = $pdo->query('SELECT * FROM mod_skins ORDER BY id DESC');
-} else {
-    $stmt = $pdo->query('SELECT * FROM mod_skins ORDER BY id DESC');
-}
-$rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
-
-$mods = [];
-foreach ($rows as $r) {
-    $pkgRaw = strtolower(trim($r['Package'] ?? $r['package'] ?? 'com.dts.freefiremax'));
-    if ($pkgRaw === 'ffth' || $pkgRaw === 'com.dts.freefireth') {
-        $gameType = 'com.dts.freefireth';
-    } else {
-        $gameType = 'com.dts.freefiremax';
-    }
-
-    $catRaw = strtolower(trim($r['Category'] ?? $r['category'] ?? 'character'));
-    if ($catRaw === 'skin-sung' || $catRaw === 'gun') {
-        $skinType = 'gun';
-    } elseif ($catRaw === 'toy' || $catRaw === 'dinh-vi') {
-        $skinType = 'toy';
-    } elseif ($catRaw === 'fix-lag' || $catRaw === 'fixlag') {
-        $skinType = 'fixlag';
-    } else {
-        $skinType = 'character';
-    }
-
-    $mods[] = [
-        'id'          => (string)($r['id'] ?? ''),
-        'title'       => (string)($r['Name'] ?? $r['name'] ?? ''),
-        'description' => (string)($r['Description'] ?? $r['description'] ?? 'Mod Skin VIP'),
-        'game_type'   => $gameType,
-        'skin_type'   => $skinType,
-        'file_url'    => (string)($r['Download'] ?? $r['download'] ?? ''),
-        'image_url'   => (string)($r['Pic'] ?? $r['pic'] ?? ''),
-    ];
-}
-
-// 2. Kết hợp với file data.json trên Server (chứa các bản mod gốc và các bản mod quản trị)
-$dataJsonFile = __DIR__ . '/data.json';
-if (file_exists($dataJsonFile)) {
-    $jsonItems = json_decode(file_get_contents($dataJsonFile), true);
-    if (is_array($jsonItems)) {
-        // Nếu data.json có khóa "items" hoặc là mảng trực tiếp
-        $list = isset($jsonItems['items']) && is_array($jsonItems['items']) ? $jsonItems['items'] : $jsonItems;
-        foreach ($list as $item) {
-            if (!is_array($item)) continue;
-            $mods[] = [
-                'id'          => (string)($item['id'] ?? ''),
-                'title'       => (string)($item['title'] ?? $item['Name'] ?? ''),
-                'description' => (string)($item['description'] ?? 'Mod Skin'),
-                'game_type'   => (string)($item['game_type'] ?? 'com.dts.freefireth'),
-                'skin_type'   => (string)($item['skin_type'] ?? 'character'),
-                'file_url'    => (string)($item['file_url'] ?? $item['Download'] ?? ''),
-                'image_url'   => (string)($item['image_url'] ?? $item['Pic'] ?? ''),
-            ];
-        }
-    }
-}
-
-$jsonPlaintext = json_encode($mods, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-// 3. Biên dịch sang khung nhị phân đa hình Chimera-VM (.chmr):
-//    [8-byte Dynamic Opcode Map] + [16-byte Server Key Share] + [Payload .chmr]
-$chimeraEnvelopeBin = ChimeraServerCompiler::compileStringToEnvelope($jsonPlaintext);
 $chmrB64 = base64_encode($chimeraEnvelopeBin);
 $t = time();
 $s = hash_hmac('sha256', $chmrB64 . '|chimera_v1|' . $t, $APP_SECRET);
@@ -220,4 +121,3 @@ echo json_encode([
     't'    => $t,
     's'    => $s,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-```
