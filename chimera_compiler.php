@@ -1,19 +1,15 @@
-```php
 <?php
 /**
- * chimera_compiler.php — Trình biên dịch đa hình Chimera-VM (.chmr) chạy trực tiếp trên PHP Server
- * Khớp 100% từng bit với Chimera_Builder.py và C++ ChimeraVM::decryptBlobAsset (libchimera_core.so).
+ * chimera_compiler.php — Trình biên dịch & giải mã đa hình Chimera-VM (.chmr) trên Server PHP
  *
- * Khi Admin thêm/sửa/xoá mod trên trang quản trị (admin/mods.php) hoặc khi App gọi api_mods.php:
- *   1. Server lấy danh sách mod từ DB / data.json
- *   2. Nén zlib mức 9 và biên dịch thành luồng lệnh 32-bit đan xen:
- *      - 50% IronBrew2 Register VM (IB2_LOADK, IB2_XOR, IB2_ADD, IB2_ROR)
- *      - 50% Custom Stack + Feistel 2 vòng + Rolling State biến thiên theo PC (CUS_PUSH, CUS_FEISTEL_MIX, CUS_EMIT, CUS_HALT)
- *   3. Sinh bảng 8 V-Opcode đa hình (opcode_map) + 16-byte Server Key Share
- *   4. Đóng gói thành khung nhị phân 24B + CHMR:
- *      [8-byte Opcode Map] + [16-byte Server Key Share] + [Payload .chmr]
- *   5. Chỉ có libchimera_core.so (sở hữu nửa khóa XOM Client_Key_Share = 0x8F4A2C91E73B6D05 trong vùng nhớ PROT_EXEC)
- *      mới giải mã được gói nhị phân này trên RAM!
+ * Bảo mật 2 lớp cho dữ liệu trên Server:
+ *   1. Trên ổ cứng Server và trên GitHub repo KHÔNG LƯU file data.json dạng rõ (plaintext),
+ *      mà chỉ lưu duy nhất file nhị phân đã mã hoá Chimera-VM: `data.chmr`
+ *      ([8-byte Dynamic Opcode Map] + [16-byte Server Key Share] + [Payload .chmr]).
+ *   2. Khi Admin vào `admin/mods.php` để thêm/sửa/xoá mod hoặc link MediaFire:
+ *      - Server giải mã `data.chmr` ngay trên RAM bằng `ChimeraServerCompiler::decryptEnvelopeToString()`
+ *      - Sau khi Admin bấm Lưu/Thêm/Xoá, Server lập tức biên dịch lại thành `data.chmr` mới
+ *        với bảng 8 V-Opcode đa hình (opcode_map) và 16-byte Server Key Share hoàn toàn mới!
  */
 
 class ChimeraServerCompiler {
@@ -34,7 +30,6 @@ class ChimeraServerCompiler {
     const CANON_CUS_HALT        = 7;
 
     // Nửa khóa Client nằm trong vùng nhớ XOM (PROT_EXEC) của libchimera_core.so: 0x8F4A2C91E73B6D05
-    // Tách thành 2 nửa 32-bit để tính toán chính xác tuyệt đối trên cả PHP 64-bit có dấu:
     const CLIENT_KEY_LOW32  = 0xE73B6D05;
     const CLIENT_KEY_HIGH32 = 0x8F4A2C91;
 
@@ -79,6 +74,20 @@ class ChimeraServerCompiler {
         return self::rol32($combined, $rotAmount);
     }
 
+    private static function feistelDecryptWord32(int $val, int $rollingState, int $imm16): int {
+        $rotAmount = $imm16 & 15;
+        $v = self::ror32($val, $rotAmount);
+        $left  = ($v >> 16) & 0xFFFF;
+        $right = $v & 0xFFFF;
+
+        $k0 = (($rollingState >> 16) ^ $imm16) & 0xFFFF;
+        $k1 = (($rollingState & 0xFFFF) ^ (($imm16 << 3) & 0xFFFF)) & 0xFFFF;
+
+        $left  ^= self::feistelRoundF($right, $k1);
+        $right ^= self::feistelRoundF($left, $k0);
+        return (($left << 16) | $right) & 0xFFFFFFFF;
+    }
+
     private static function advanceRollingState(int $rollingState, int $pc): int {
         $term = self::u32(0x9E3779B9 * self::u32($pc + 1));
         $mixed = self::u32($rollingState ^ $term);
@@ -92,8 +101,6 @@ class ChimeraServerCompiler {
 
     private static function deriveInitialRollingState(string $serverKeyShare16B, int $nonce): int {
         $unpacked = unpack("V4", $serverKeyShare16B);
-        // srv_k0 = low32: $unpacked[1], high32: $unpacked[2]
-        // srv_k1 = low32: $unpacked[3], high32: $unpacked[4]
         $masterLow32  = (self::CLIENT_KEY_LOW32  ^ $unpacked[1] ^ $unpacked[3]) & 0xFFFFFFFF;
         $masterHigh32 = (self::CLIENT_KEY_HIGH32 ^ $unpacked[2] ^ $unpacked[4]) & 0xFFFFFFFF;
         $folded32 = ($masterLow32 ^ $masterHigh32) & 0xFFFFFFFF;
@@ -110,21 +117,18 @@ class ChimeraServerCompiler {
     }
 
     /**
-     * Biên dịch chuỗi JSON (danh sách Mod Skin / Phối đồ) thành gói Envelope nhị phân Chimera-VM:
+     * Biên dịch chuỗi JSON sang khung nhị phân Chimera-VM (.chmr):
      *   [8B Dynamic Opcode Map] + [16B Server Key Share] + [Payload .chmr]
      */
     public static function compileStringToEnvelope(string $rawBytes): string {
-        // 1. Sinh ngẫu nhiên 8 V-Opcodes phân biệt trong miền 0x10..0xFE
         $pool = range(0x10, 0xFE);
         shuffle($pool);
         $opcodeMap = array_slice($pool, 0, 8);
         $opcodeMapBin = pack("C8", ...$opcodeMap);
 
-        // 2. Sinh ngẫu nhiên 16-byte Server Key Share và 32-bit Nonce
         $serverKeyShareBin = random_bytes(16);
         $nonce = unpack("V", random_bytes(4))[1] & 0xFFFFFFFF;
 
-        // 3. Nén zlib mức 9 và căn lề 4-byte
         $origSize = strlen($rawBytes);
         $compRaw = zlib_encode($rawBytes, ZLIB_ENCODING_DEFLATE, 9);
         $compSize = strlen($compRaw);
@@ -157,7 +161,6 @@ class ChimeraServerCompiler {
         for ($wordIdx = 0; $wordIdx < $numWords; $wordIdx++) {
             $targetWord = $words[$wordIdx] & 0xFFFFFFFF;
 
-            // Chọn 3 thanh ghi khác nhau trong tập R[0..15]
             $regA = ($wordIdx * 3) & 15;
             $regB = ($regA + 5) & 15;
             $regDst = ($regA + 11) & 15;
@@ -175,7 +178,6 @@ class ChimeraServerCompiler {
                 $canonAlu = self::CANON_IB2_ROR;
             }
 
-            // Mô phỏng nháp tiến trình rolling_state qua 5 lệnh đầu để lấy state tại lệnh thứ 6 (CUS_FEISTEL_MIX)
             $simState = $rollingState;
             $simPc = $pc;
             $prelimOps = [
@@ -208,19 +210,16 @@ class ChimeraServerCompiler {
             $low16  = $regAVal & 0xFFFF;
             $high16 = ($regAVal >> 16) & 0xFFFF;
 
-            // 4 lệnh IronBrew2 Register
             $emitRaw(self::CANON_IB2_LOADK, $regA, 0, $low16);
             $emitRaw(self::CANON_IB2_LOADK, $regA, 1, $high16);
             $emitRaw(self::CANON_IB2_LOADK, $regB, 0, $mask16);
             $emitRaw($canonAlu, $regDst, $regA, $aluCField);
 
-            // 3 lệnh Custom Stack
             $emitRaw(self::CANON_CUS_PUSH, $regDst, 0, 0);
             $emitRaw(self::CANON_CUS_FEISTEL_MIX, 0, 0, $feistelImm);
             $emitRaw(self::CANON_CUS_EMIT, 0, 0, 0);
         }
 
-        // Kết thúc bằng CUS_HALT
         $emitRaw(self::CANON_CUS_HALT, 0, 0, 0);
 
         $flags = self::FLAG_ZLIB_COMPRESSED | self::FLAG_INTERLEAVED_VM;
@@ -236,9 +235,94 @@ class ChimeraServerCompiler {
         );
         $chmrPayload = $header . pack("V", $insnCount) . $packedInsns;
 
-        // Trả về khung nhị phân chuẩn 24-byte prefix + CHMR:
-        // [8B Opcode Map][16B Server Key Share][CHMR Payload]
         return $opcodeMapBin . $serverKeyShareBin . $chmrPayload;
     }
+
+    /**
+     * Giải mã gói nhị phân `data.chmr` trên RAM Server khi Admin mở trang quản trị `admin/mods.php`
+     * (Hỗ trợ cả gói có 24B prefix [8B Opcode Map][16B Server Key Share] hoặc gói .chmr chuẩn).
+     */
+    public static function decryptEnvelopeToString(string $envelopeBin): string {
+        if (strlen($envelopeBin) < 24) return "";
+
+        if (substr($envelopeBin, 0, 4) === self::CHIMERA_MAGIC) {
+            $opcodeMap = [0x26, 0x69, 0xD4, 0xB1, 0xE7, 0x7E, 0x71, 0xF4];
+            $serverKeyShareBin = hex2bin("3a7f91c4e208b56d19a4f08c2e6b7d31");
+            $chmrBin = $envelopeBin;
+        } elseif (strlen($envelopeBin) > 48 && substr($envelopeBin, 24, 4) === self::CHIMERA_MAGIC) {
+            $opcodeMap = array_values(unpack("C8", substr($envelopeBin, 0, 8)));
+            $serverKeyShareBin = substr($envelopeBin, 8, 16);
+            $chmrBin = substr($envelopeBin, 24);
+        } else {
+            return "";
+        }
+
+        $revMap = array_fill(0, 256, 0xFF);
+        for ($i = 0; $i < 8; $i++) {
+            $revMap[$opcodeMap[$i]] = $i;
+        }
+
+        $hdr = unpack("a4magic/Cver/Cdtype/vflags/VorigSize/VcompSize/Vnonce/VinsnCount", substr($chmrBin, 0, 24));
+        if ($hdr['magic'] !== self::CHIMERA_MAGIC || $hdr['ver'] !== self::CHIMERA_VERSION) {
+            return "";
+        }
+
+        $insnCount = $hdr['insnCount'];
+        $insns = array_values(unpack("V*", substr($chmrBin, 24, $insnCount * 4)));
+
+        $regs = array_fill(0, 16, 0);
+        $vStack = array_fill(0, 32, 0);
+        $sp = -1;
+        $outStream = "";
+
+        $rollingState = self::deriveInitialRollingState($serverKeyShareBin, $hdr['nonce']);
+
+        for ($pc = 0; $pc < $insnCount; $pc++) {
+            $rollingState = self::advanceRollingState($rollingState, $pc);
+            $rawInst = ($insns[$pc] ^ $rollingState) & 0xFFFFFFFF;
+
+            $vOp = $rawInst & 0xFF;
+            $a   = ($rawInst >> 8) & 0x0F;
+            $b   = ($rawInst >> 12) & 0x0F;
+            $c   = ($rawInst >> 16) & 0xFFFF;
+
+            $canonOp = $revMap[$vOp];
+            if ($canonOp === self::CANON_IB2_LOADK) {
+                if ($b === 0) {
+                    $regs[$a] = $c & 0xFFFF;
+                } else {
+                    $regs[$a] = (($regs[$a] & 0x0000FFFF) | (($c & 0xFFFF) << 16)) & 0xFFFFFFFF;
+                }
+            } elseif ($canonOp === self::CANON_IB2_XOR) {
+                $regs[$a] = ($regs[$b] ^ $regs[$c & 0x0F]) & 0xFFFFFFFF;
+            } elseif ($canonOp === self::CANON_IB2_ADD) {
+                $regs[$a] = ($regs[$b] + $regs[$c & 0x0F]) & 0xFFFFFFFF;
+            } elseif ($canonOp === self::CANON_IB2_ROR) {
+                $regs[$a] = self::ror32($regs[$b], $c & 31);
+            } elseif ($canonOp === self::CANON_CUS_PUSH) {
+                $sp = ($sp + 1) & 31;
+                $vStack[$sp] = $regs[$a];
+            } elseif ($canonOp === self::CANON_CUS_FEISTEL_MIX) {
+                if ($sp >= 0) {
+                    $vStack[$sp] = self::feistelDecryptWord32($vStack[$sp], $rollingState, $c);
+                }
+            } elseif ($canonOp === self::CANON_CUS_EMIT) {
+                if ($sp >= 0) {
+                    $outStream .= pack("V", $vStack[$sp]);
+                    $sp--;
+                }
+            } elseif ($canonOp === self::CANON_CUS_HALT) {
+                break;
+            }
+
+            $rollingState = self::postInstRollingMix($rollingState, $canonOp);
+        }
+
+        if ($hdr['flags'] & self::FLAG_ZLIB_COMPRESSED) {
+            $compSlice = substr($outStream, 0, $hdr['compSize']);
+            $plain = @zlib_decode($compSlice);
+            return ($plain !== false) ? substr($plain, 0, $hdr['origSize']) : "";
+        }
+        return substr($outStream, 0, $hdr['origSize']);
+    }
 }
-```
