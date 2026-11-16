@@ -1,3 +1,4 @@
+```php
 <?php
 /**
  * api_mods.php — Phục vụ trực tiếp từ file nhị phân đã mã hoá `data.chmr` trên Server
@@ -32,9 +33,15 @@ if (!checkRateLimit('api_mods_' . $ip, 40, 60)) {
     exit;
 }
 
-$input = json_decode(file_get_contents('php://input'), true);
-if (!is_array($input)) $input = [];
-$input = array_merge($_GET, $_POST, $input);
+$rawBody = file_get_contents('php://input');
+$jsonIn = json_decode($rawBody, true);
+$formIn = [];
+if (!is_array($jsonIn) && is_string($rawBody) && $rawBody !== '') {
+    parse_str($rawBody, $formIn);
+}
+if (!is_array($jsonIn)) $jsonIn = [];
+if (!is_array($formIn)) $formIn = [];
+$input = array_merge($_GET, $_POST, $formIn, $jsonIn);
 
 $key   = trim((string)($input['key']   ?? ''));
 $hwid  = trim((string)($input['hwid']  ?? ''));
@@ -88,10 +95,8 @@ if (!empty($kd['expires_at']) && strtotime($kd['expires_at']) < time()) {
 }
 
 $app_from_db = strtolower(trim($kd['app'] ?? ''));
-$ff_ok = function_exists('is_ff_family')
-    ? (is_ff_family($app_from_db) && is_ff_family('modskin'))
-    : in_array($app_from_db, ['fakelag', 'locmod', 'modskin'], true);
-if (!$ff_ok && $app_from_db !== 'modskin') {
+$ff_ok = in_array($app_from_db, ['', 'other', 'fakelag', 'locmod', 'modskin'], true);
+if (!$ff_ok) {
     http_response_code(403);
     echo json_encode(['error' => 'key_app_mismatch']);
     exit;
@@ -121,3 +126,4 @@ echo json_encode([
     't'    => $t,
     's'    => $s,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+```
