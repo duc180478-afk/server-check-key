@@ -1,4 +1,3 @@
-```php
 <?php
 /**
  * api_mods.php — Phục vụ trực tiếp từ file nhị phân đã mã hoá `data.chmr` trên Server
@@ -107,13 +106,36 @@ if (!empty($kd['bound_hwid']) && $kd['bound_hwid'] !== $hwid) {
     exit;
 }
 
-// Đọc trực tiếp file nhị phân đã mã hoá Chimera-VM `data.chmr` trên Server
+// Ưu tiên đọc gói nhị phân đã mã hoá Chimera-VM `data.chmr` từ Database (chống mất dữ liệu khi Render ngủ/sập container),
+// nếu Database chưa có thì đọc từ file `/data.chmr` trên đĩa và đồng bộ ngược vào Database.
 $dataChmrFile = __DIR__ . '/data.chmr';
-if (file_exists($dataChmrFile)) {
-    $chimeraEnvelopeBin = file_get_contents($dataChmrFile);
-} else {
-    $chimeraEnvelopeBin = ChimeraServerCompiler::compileStringToEnvelope("[]");
-    file_put_contents($dataChmrFile, $chimeraEnvelopeBin, LOCK_EX);
+$chimeraEnvelopeBin = null;
+try {
+    $pdo = Database::getConnection();
+    $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_mod_vault (id INTEGER PRIMARY KEY CHECK (id = 1), chmr_b64 TEXT NOT NULL, updated_at INTEGER NOT NULL)");
+    $rowB64 = $pdo->query("SELECT chmr_b64 FROM chimera_mod_vault WHERE id = 1")->fetchColumn();
+    if (is_string($rowB64) && strlen($rowB64) > 32) {
+        $decBin = base64_decode($rowB64, true);
+        if ($decBin !== false && strlen($decBin) > 24) {
+            $chimeraEnvelopeBin = $decBin;
+        }
+    }
+} catch (Throwable $e) {
+    // Fallback sang file data.chmr nếu DB lỗi
+}
+
+if ($chimeraEnvelopeBin === null) {
+    if (file_exists($dataChmrFile)) {
+        $chimeraEnvelopeBin = file_get_contents($dataChmrFile);
+    } else {
+        $chimeraEnvelopeBin = ChimeraServerCompiler::compileStringToEnvelope("[]");
+        @file_put_contents($dataChmrFile, $chimeraEnvelopeBin, LOCK_EX);
+    }
+    try {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("INSERT INTO chimera_mod_vault (id, chmr_b64, updated_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET chmr_b64 = excluded.chmr_b64, updated_at = excluded.updated_at");
+        $stmt->execute([base64_encode($chimeraEnvelopeBin), time()]);
+    } catch (Throwable $e) {}
 }
 
 $chmrB64 = base64_encode($chimeraEnvelopeBin);
@@ -126,4 +148,3 @@ echo json_encode([
     't'    => $t,
     's'    => $s,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-```
