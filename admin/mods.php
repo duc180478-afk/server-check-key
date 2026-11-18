@@ -254,6 +254,7 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
             <select name="game_type">
               <option value="com.dts.freefireth"  <?= $gt === 'com.dts.freefireth'  ? 'selected' : '' ?>>com.dts.freefireth — FF Thường</option>
               <option value="com.dts.freefiremax" <?= $gt === 'com.dts.freefiremax' ? 'selected' : '' ?>>com.dts.freefiremax — FF Max</option>
+              <option value="com.garena.ffvn"    <?= $gt === 'com.garena.ffvn'    ? 'selected' : '' ?>>com.garena.ffvn — FF VN</option>
             </select>
           </div>
           <div class="f">
