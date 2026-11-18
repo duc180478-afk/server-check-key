@@ -20,38 +20,110 @@ adminRequireLogin();
 
 @date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-$dataChmrPath = __DIR__ . '/../data.chmr';
+$dataChmrPath = __DIR__ . '/../data/data.chmr';
+$seedChmrPath = __DIR__ . '/../data.chmr';
 $legacyJsonPath = __DIR__ . '/../data.json';
 
-function loadServerEncryptedChmr(string $chmrPath, string $legacyJsonPath): array {
-    if (file_exists($chmrPath)) {
-        $envBin = file_get_contents($chmrPath);
+function ensureModVaultTable(): ?PDO {
+    try {
+        $pdo = Database::getConnection();
+        $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_mod_vault (id INTEGER PRIMARY KEY CHECK (id = 1), chmr_b64 TEXT NOT NULL, updated_at INTEGER NOT NULL)");
+        return $pdo;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function loadServerEncryptedChmr(string $writableChmrPath, string $legacyJsonPath): array {
+    $seedChmrPath = __DIR__ . '/../data.chmr';
+
+    // 1. Ưu tiên đọc từ Database (không bao giờ lỗi Permission denied và không mất khi Render restart)
+    $pdo = ensureModVaultTable();
+    if ($pdo !== null) {
+        try {
+            $rowB64 = $pdo->query("SELECT chmr_b64 FROM chimera_mod_vault WHERE id = 1")->fetchColumn();
+            if (is_string($rowB64) && strlen($rowB64) > 32) {
+                $envBin = base64_decode($rowB64, true);
+                if ($envBin !== false && strlen($envBin) > 24) {
+                    $plainJson = ChimeraServerCompiler::decryptEnvelopeToString($envBin);
+                    $arr = json_decode($plainJson, true);
+                    if (is_array($arr)) {
+                        if (!is_dir(dirname($writableChmrPath))) {
+                            @mkdir(dirname($writableChmrPath), 0755, true);
+                        }
+                        @file_put_contents($writableChmrPath, $envBin, LOCK_EX);
+                        return isset($arr['items']) && is_array($arr['items']) ? $arr['items'] : $arr;
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+    }
+
+    // 2. Đọc từ /var/www/html/data/data.chmr (thư mục data/ có quyền ghi www-data)
+    if (file_exists($writableChmrPath)) {
+        $envBin = @file_get_contents($writableChmrPath);
         if ($envBin !== false && strlen($envBin) > 24) {
             $plainJson = ChimeraServerCompiler::decryptEnvelopeToString($envBin);
             $arr = json_decode($plainJson, true);
             if (is_array($arr)) {
-                return isset($arr['items']) && is_array($arr['items']) ? $arr['items'] : $arr;
+                $items = isset($arr['items']) && is_array($arr['items']) ? $arr['items'] : $arr;
+                saveServerEncryptedChmr($writableChmrPath, $items);
+                return $items;
             }
         }
     }
-    // Tự động chuyển đổi từ data.json sang data.chmr và xoá data.json nếu lần đầu nâng cấp
-    if (file_exists($legacyJsonPath)) {
-        $raw = file_get_contents($legacyJsonPath);
-        $arr = json_decode($raw, true);
-        if (is_array($arr)) {
-            $items = isset($arr['items']) && is_array($arr['items']) ? $arr['items'] : $arr;
-            saveServerEncryptedChmr($chmrPath, $items);
-            @unlink($legacyJsonPath);
-            return $items;
+
+    // 3. Khởi tạo lần đầu từ file gốc /var/www/html/data.chmr (535 bản mod)
+    if (file_exists($seedChmrPath)) {
+        $envBin = @file_get_contents($seedChmrPath);
+        if ($envBin !== false && strlen($envBin) > 24) {
+            $plainJson = ChimeraServerCompiler::decryptEnvelopeToString($envBin);
+            $arr = json_decode($plainJson, true);
+            if (is_array($arr)) {
+                $items = isset($arr['items']) && is_array($arr['items']) ? $arr['items'] : $arr;
+                saveServerEncryptedChmr($writableChmrPath, $items);
+                return $items;
+            }
         }
     }
+
     return [];
 }
 
-function saveServerEncryptedChmr(string $chmrPath, array $items): bool {
+function saveServerEncryptedChmr(string $writableChmrPath, array $items): bool {
     $compactJson = json_encode(array_values($items), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $envelopeBin = ChimeraServerCompiler::compileStringToEnvelope($compactJson);
-    return file_put_contents($chmrPath, $envelopeBin, LOCK_EX) !== false;
+
+    if (!is_dir(dirname($writableChmrPath))) {
+        @mkdir(dirname($writableChmrPath), 0755, true);
+    }
+    $fileOk = @file_put_contents($writableChmrPath, $envelopeBin, LOCK_EX) !== false;
+    // Nếu thư mục gốc có quyền ghi thì đồng bộ thêm, nếu không có quyền thì bỏ qua không báo Warning
+    if (is_writable(__DIR__ . '/../data.chmr') || is_writable(__DIR__ . '/..')) {
+        @file_put_contents(__DIR__ . '/../data.chmr', $envelopeBin, LOCK_EX);
+    }
+
+    $dbOk = false;
+    $pdo = ensureModVaultTable();
+    if ($pdo !== null) {
+        try {
+            $pdo->exec("DELETE FROM chimera_mod_vault WHERE id = 1");
+            $stmt = $pdo->prepare("INSERT INTO chimera_mod_vault (id, chmr_b64, updated_at) VALUES (1, ?, ?)");
+            $dbOk = $stmt->execute([base64_encode($envelopeBin), time()]);
+        } catch (Throwable $e) {}
+    }
+    return $fileOk || $dbOk;
+}
+
+if (isset($_GET['download_chmr']) && $_GET['download_chmr'] === '1') {
+    $curItems = loadServerEncryptedChmr($dataChmrPath, $legacyJsonPath);
+    $compactJson = json_encode(array_values($curItems), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $envelopeBin = ChimeraServerCompiler::compileStringToEnvelope($compactJson);
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="data.chmr"');
+    header('Content-Length: ' . strlen($envelopeBin));
+    echo $envelopeBin;
+    exit;
 }
 
 $flash = '';
@@ -70,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $description = trim($_POST['description'] ?? 'Mod Skin VIP');
             $image_url   = trim($_POST['image_url'] ?? '');
             $file_url    = trim($_POST['file_url'] ?? '');
-            $game_type   = in_array($_POST['game_type'] ?? '', ['com.dts.freefireth', 'com.dts.freefiremax'], true)
+            $game_type   = in_array($_POST['game_type'] ?? '', ['com.dts.freefireth', 'com.dts.freefiremax', 'com.garena.ffvn'], true)
                            ? $_POST['game_type'] : 'com.dts.freefiremax';
             $skin_type   = in_array($_POST['skin_type'] ?? '', ['character', 'gun', 'toy', 'fixlag'], true)
                            ? $_POST['skin_type'] : 'character';
@@ -212,6 +284,7 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
         <?= csrfField() ?>
         <input type="hidden" name="action" value="reencrypt">
         <button type="submit" class="btn ghost sm">Đảo lại Opcode Map & Key Share (.chmr)</button>
+        <a href="mods.php?download_chmr=1" class="btn ghost sm" style="text-decoration:none;margin-left:6px;">⬇ Tải data.chmr về máy</a>
       </form>
     </div>
     <div class="cbody">
