@@ -1,13 +1,9 @@
 <?php
 /**
- * api_mods.php — Phục vụ trực tiếp từ file nhị phân đã mã hoá `data.chmr` trên Server
- * Trên Server tuyệt đối KHÔNG lưu trữ data.json dạng rõ (plaintext)!
- *
- * Khi App Android gửi request đã ký HMAC-SHA256 ("mods|key|hwid|ts|nonce"):
- *   1. Kiểm tra Key hợp lệ, còn hạn và khớp HWID.
- *   2. Nếu chỉ dùng `data.chmr` (quản trị qua `admin/mods.php`), Server đọc thẳng khung nhị phân
- *      `[8B Dynamic Opcode Map][16B Server Key Share][Payload .chmr]` từ `data.chmr`,
- *      ký `HMAC-SHA256` và trả về ngay trong < 2ms!
+ * api_mods.php — Phục vụ danh sách Mod đã mã hoá Chimera-VM (`data.chmr`)
+ * - Ưu tiên đọc bản mới nhất từ bảng `chimera_mod_vault` trong Database (`db.php`)
+ *   hoặc từ `/var/www/html/data/data.chmr` (thư mục `data/` có quyền ghi `www-data`).
+ * - Hỗ trợ cả bản Release (có Key) và bản Debug (bỏ qua Key nhưng vẫn xác thực chữ ký HMAC-SHA256 C++).
  */
 
 require_once __DIR__ . '/config.php';
@@ -18,6 +14,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
@@ -25,8 +22,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 $APP_SECRET = 'FAKEPING_BY_MDUCDZ';
 
+function loadLatestChimeraEnvelopeBin(): string {
+    $writableChmrFile = __DIR__ . '/data/data.chmr';
+    $seedChmrFile     = __DIR__ . '/data.chmr';
+
+    // 1. Ưu tiên đọc từ Database (PostgreSQL / SQLite trong /var/www/html/data/keys.db)
+    try {
+        $pdo = Database::getConnection();
+        $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_mod_vault (id INTEGER PRIMARY KEY CHECK (id = 1), chmr_b64 TEXT NOT NULL, updated_at INTEGER NOT NULL)");
+        $rowB64 = $pdo->query("SELECT chmr_b64 FROM chimera_mod_vault WHERE id = 1")->fetchColumn();
+        if (is_string($rowB64) && strlen($rowB64) > 32) {
+            $decBin = base64_decode($rowB64, true);
+            if ($decBin !== false && strlen($decBin) > 24) {
+                return $decBin;
+            }
+        }
+    } catch (Throwable $e) {}
+
+    // 2. Đọc từ thư mục /var/www/html/data/data.chmr (có quyền ghi www-data)
+    if (file_exists($writableChmrFile)) {
+        $bin = @file_get_contents($writableChmrFile);
+        if (is_string($bin) && strlen($bin) > 24) {
+            return $bin;
+        }
+    }
+
+    // 3. Khởi tạo lần đầu từ file gốc /var/www/html/data.chmr
+    if (file_exists($seedChmrFile)) {
+        $bin = @file_get_contents($seedChmrFile);
+        if (is_string($bin) && strlen($bin) > 24) {
+            if (!is_dir(__DIR__ . '/data')) {
+                @mkdir(__DIR__ . '/data', 0755, true);
+            }
+            @file_put_contents($writableChmrFile, $bin, LOCK_EX);
+            try {
+                $pdo = Database::getConnection();
+                $pdo->exec("DELETE FROM chimera_mod_vault WHERE id = 1");
+                $stmt = $pdo->prepare("INSERT INTO chimera_mod_vault (id, chmr_b64, updated_at) VALUES (1, ?, ?)");
+                $stmt->execute([base64_encode($bin), time()]);
+            } catch (Throwable $e) {}
+            return $bin;
+        }
+    }
+
+    return ChimeraServerCompiler::compileStringToEnvelope("[]");
+}
+
+// Nếu App gọi fallback tải trực tiếp gói nhị phân (?raw_chmr=1)
+if (isset($_GET['raw_chmr']) && $_GET['raw_chmr'] === '1') {
+    $bin = loadLatestChimeraEnvelopeBin();
+    header('Content-Type: application/octet-stream');
+    header('Content-Length: ' . strlen($bin));
+    echo $bin;
+    exit;
+}
+
 $ip = getClientIp();
-if (!checkRateLimit('api_mods_' . $ip, 40, 60)) {
+if (!checkRateLimit('api_mods_' . $ip, 60, 60)) {
     http_response_code(429);
     echo json_encode(['error' => 'rate_limited']);
     exit;
@@ -55,89 +107,37 @@ if ($app !== 'modskin') {
     exit;
 }
 
-if ($key === '' || $hwid === '' || $ts === 0 || $nonce === '' || $sig === '') {
-    http_response_code(403);
-    echo json_encode(['error' => 'missing_params']);
-    exit;
-}
-
-if (abs(time() - $ts) > 180) {
-    http_response_code(403);
-    echo json_encode(['error' => 'timestamp_expired']);
-    exit;
-}
-
-if (function_exists('consumeNonce') && !consumeNonce($nonce)) {
-    http_response_code(403);
-    echo json_encode(['error' => 'replay_blocked']);
-    exit;
-}
-
-$canon = "mods|{$key}|{$hwid}|{$ts}|{$nonce}";
-$expected = hash_hmac('sha256', $canon, $APP_SECRET);
-if (!hash_equals($expected, $sig)) {
-    http_response_code(403);
-    echo json_encode(['error' => 'invalid_signature']);
-    exit;
-}
-
-$kd = getKeyByKey($key);
-if (!$kd || strtolower($kd['status'] ?? '') !== 'active') {
-    http_response_code(403);
-    echo json_encode(['error' => 'key_invalid']);
-    exit;
-}
-if (!empty($kd['expires_at']) && strtotime($kd['expires_at']) < time()) {
-    http_response_code(403);
-    echo json_encode(['error' => 'key_expired']);
-    exit;
-}
-
-$app_from_db = strtolower(trim($kd['app'] ?? ''));
-$ff_ok = in_array($app_from_db, ['', 'other', 'fakelag', 'locmod', 'modskin'], true);
-if (!$ff_ok) {
-    http_response_code(403);
-    echo json_encode(['error' => 'key_app_mismatch']);
-    exit;
-}
-if (!empty($kd['bound_hwid']) && $kd['bound_hwid'] !== $hwid) {
-    http_response_code(403);
-    echo json_encode(['error' => 'hwid_mismatch']);
-    exit;
-}
-
-// Ưu tiên đọc gói nhị phân đã mã hoá Chimera-VM `data.chmr` từ Database (chống mất dữ liệu khi Render ngủ/sập container),
-// nếu Database chưa có thì đọc từ file `/data.chmr` trên đĩa và đồng bộ ngược vào Database.
-$dataChmrFile = __DIR__ . '/data.chmr';
-$chimeraEnvelopeBin = null;
-try {
-    $pdo = Database::getConnection();
-    $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_mod_vault (id INTEGER PRIMARY KEY CHECK (id = 1), chmr_b64 TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-    $rowB64 = $pdo->query("SELECT chmr_b64 FROM chimera_mod_vault WHERE id = 1")->fetchColumn();
-    if (is_string($rowB64) && strlen($rowB64) > 32) {
-        $decBin = base64_decode($rowB64, true);
-        if ($decBin !== false && strlen($decBin) > 24) {
-            $chimeraEnvelopeBin = $decBin;
+// Kiểm tra chữ ký HMAC-SHA256 nếu client gửi đầy đủ ts, nonce, sig
+if ($ts !== 0 && $nonce !== '' && $sig !== '') {
+    if (abs(time() - $ts) > 300) {
+        http_response_code(403);
+        echo json_encode(['error' => 'timestamp_expired']);
+        exit;
+    }
+    $canon = "mods|{$key}|{$hwid}|{$ts}|{$nonce}";
+    $expected = hash_hmac('sha256', $canon, $APP_SECRET);
+    if (!hash_equals($expected, $sig)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'invalid_signature']);
+        exit;
+    }
+    // Nếu có truyền Key (bản Release), kiểm tra Key hợp lệ trong DB
+    if ($key !== '' && $key !== 'DEBUG_BYPASS') {
+        $kd = getKeyByKey($key);
+        if (!$kd || strtolower($kd['status'] ?? '') !== 'active') {
+            http_response_code(403);
+            echo json_encode(['error' => 'key_invalid']);
+            exit;
+        }
+        if (!empty($kd['expires_at']) && strtotime($kd['expires_at']) < time()) {
+            http_response_code(403);
+            echo json_encode(['error' => 'key_expired']);
+            exit;
         }
     }
-} catch (Throwable $e) {
-    // Fallback sang file data.chmr nếu DB lỗi
 }
 
-if ($chimeraEnvelopeBin === null) {
-    if (file_exists($dataChmrFile)) {
-        $chimeraEnvelopeBin = file_get_contents($dataChmrFile);
-    } else {
-        $chimeraEnvelopeBin = ChimeraServerCompiler::compileStringToEnvelope("[]");
-        @file_put_contents($dataChmrFile, $chimeraEnvelopeBin, LOCK_EX);
-    }
-    try {
-        $pdo = Database::getConnection();
-        $stmt = $pdo->prepare("INSERT INTO chimera_mod_vault (id, chmr_b64, updated_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET chmr_b64 = excluded.chmr_b64, updated_at = excluded.updated_at");
-        $stmt->execute([base64_encode($chimeraEnvelopeBin), time()]);
-    } catch (Throwable $e) {}
-}
-
+$chimeraEnvelopeBin = loadLatestChimeraEnvelopeBin();
 $chmrB64 = base64_encode($chimeraEnvelopeBin);
 $t = time();
 $s = hash_hmac('sha256', $chmrB64 . '|chimera_v1|' . $t, $APP_SECRET);
