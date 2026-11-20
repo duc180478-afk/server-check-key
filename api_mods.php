@@ -107,6 +107,16 @@ if (ChimeraServerShield::isBanned($ip, $hwid)) {
     ChimeraServerShield::rejectCracker('banned_cracker', $ip, $hwid, $key, false);
 }
 
+$apkSig = strtolower(trim((string)($input['apk_sig'] ?? '')));
+$ALLOWED_APK_SIGS = [
+    'db0f267fa6b0eebd5f0c8b91670d7b9dba527e0f33bd64edc031b7bf05c97e71',
+    'a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc',
+    '81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8',
+];
+if ($strict && $apkSig !== '' && !in_array($apkSig, $ALLOWED_APK_SIGS, true)) {
+    ChimeraServerShield::rejectCracker('invalid_apk_cert', $ip, $hwid, $key, true);
+}
+
 if ($shield !== 0) {
     ChimeraServerShield::rejectCracker('client_shield_tripped', $ip, $hwid, $key, true);
 }
