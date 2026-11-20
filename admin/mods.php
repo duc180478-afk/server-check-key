@@ -15,6 +15,7 @@ session_start();
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/../chimera_compiler.php';
+require_once __DIR__ . '/../shield_guard.php';
 require_once __DIR__ . '/admin_auth.php';
 adminRequireLogin();
 
@@ -129,6 +130,22 @@ if (isset($_GET['download_chmr']) && $_GET['download_chmr'] === '1') {
 $flash = '';
 $editItem = null;
 $items = loadServerEncryptedChmr($dataChmrPath, $legacyJsonPath);
+
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['chimera_shield_action'])) {
+    $act = $_POST['chimera_shield_action'];
+    if ($act === 'save_flags') {
+        ChimeraServerShield::setFlag('strict_shield', isset($_POST['strict_shield']));
+        ChimeraServerShield::setFlag('allow_debug_bypass', isset($_POST['allow_debug_bypass']));
+    } elseif ($act === 'clear_bans') {
+        ChimeraServerShield::clearAllBans();
+    }
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?shield_saved=1');
+    exit;
+}
+$shieldStrictOn = ChimeraServerShield::getFlag('strict_shield', defined('CHIMERA_STRICT_SHIELD') ? CHIMERA_STRICT_SHIELD : true);
+$shieldDebugOn  = ChimeraServerShield::getFlag('allow_debug_bypass', defined('CHIMERA_ALLOW_DEBUG_BYPASS') ? CHIMERA_ALLOW_DEBUG_BYPASS : false);
+$shieldStats    = ChimeraServerShield::getStats();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -260,6 +277,34 @@ th{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase
 </style>
 </head>
 <body>
+<div style="background:#16181d;border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:14px 16px;margin:12px auto 16px;max-width:1100px;color:#ededed;font-family:system-ui,sans-serif;">
+  <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;">
+    <div>
+      <strong style="font-size:14px;">Chimera Shield v16 (Chống Crack &amp; Debug)</strong>
+      <div style="font-size:12px;color:#9ca3af;margin-top:2px;">
+        Đang chặn: <b><?= (int)$shieldStats['bans'] ?></b> IP/HWID · Tổng log crack: <b><?= (int)$shieldStats['logs'] ?></b>
+        <?php if (!empty($_GET['shield_saved'])): ?><span style="color:#22c55e;margin-left:8px;">Đã lưu cài đặt</span><?php endif; ?>
+      </div>
+    </div>
+    <form method="post" style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin:0;">
+      <input type="hidden" name="chimera_shield_action" value="save_flags">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" name="strict_shield" value="1" <?= $shieldStrictOn ? 'checked' : '' ?>>
+        Bật Strict Shield (Chặn ?raw_chmr &amp; bắt buộc chữ ký)
+      </label>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" name="allow_debug_bypass" value="1" <?= $shieldDebugOn ? 'checked' : '' ?>>
+        Cho phép bản Debug nội bộ (DEBUG_BYPASS)
+      </label>
+      <button type="submit" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">Lưu Shield</button>
+    </form>
+    <form method="post" style="margin:0;">
+      <input type="hidden" name="chimera_shield_action" value="clear_bans">
+      <button type="submit" style="background:#27272a;color:#e4e4e7;border:1px solid rgba(255,255,255,0.14);border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Xóa danh sách Ban</button>
+    </form>
+  </div>
+</div>
+
 <div class="bar">
   <div>
     <strong style="font-size:18px;">KEY.SYS</strong>
