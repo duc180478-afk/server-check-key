@@ -14,6 +14,7 @@ $APP_SECRET = 'FAKEPING_BY_MDUCDZ';
 // is_ff_family() defined in functions.php (includes modskin)
 
 $ip = getClientIp();
+if (ChimeraServerShield::isBanned($ip, '')) { ChimeraServerShield::rejectCracker('banned_cracker', $ip, '', '', false); }
 if (!checkRateLimit('api_' . $ip, 30, 60)) {
     http_response_code(429);
     echo json_encode(['status' => 'error', 'message' => 'Quá nhiều yêu cầu. Vui lòng thử lại sau.']);
