@@ -8,7 +8,7 @@ define('DB_PATH', __DIR__ . '/data/keys.db');
 define('ADMIN_PASSWORD_HASH', getenv('ADMIN_PASSWORD_HASH') ?: '$2a$10$/nEUgCdjmiSe/1ljkvdIPOuv8qZeoQvO9Cw8ZTsYyzrvlAVJueBMS'); // hash cho "admin123"
 
 // Cấu hình Telegram Bot
-define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: '8430522560:AAEZ8T7Kyz5nVLww6nYs9g4oCIiAqxuXcDE');
+define('TELEGRAM_BOT_TOKEN', getenv('TELEGRAM_BOT_TOKEN') ?: 8430522560:AAGCEgynTxlzlSrgc_0_EUq1_3I1bPTvOTQ');
 
 // Danh sách admin chat IDs (có thể thêm nhiều)
  $adminIds = ['8496514219', '8361524404'];
