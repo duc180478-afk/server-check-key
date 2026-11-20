@@ -38,8 +38,9 @@ $apkSig     = strtolower(trim($_POST['apk_sig'] ?? $_GET['apk_sig'] ?? ''));
 $ALLOWED_APK_SIGS = [
     '81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8',
 '81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8',
-'a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc', // debug app-debug.apk
-    // 'release_sha256_here',
+'a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc',
+'db0f267fa6b0eebd5f0c8b91670d7b9dba527e0f33bd64edc031b7bf05c97e71', // debug app-debug.apk
+    // 'db0f267fa6b0eebd5f0c8b91670d7b9dba527e0f33bd64edc031b7bf05c97e71',
 ];
 
 // ─── Phase 1: HMAC BẮT BUỘC ───────────────────────────────────────
