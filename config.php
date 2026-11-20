@@ -16,3 +16,9 @@ define('TELEGRAM_ADMIN_CHAT_IDS', $adminIds);
 
 // URL webhook của bot
 define('BOT_WEBHOOK_URL', getenv('BOT_WEBHOOK_URL') ?: 'https://getkey2.onrender.com');
+// === CHIMERA SHIELD v16 (Server-Side Anti-Crack) ===
+// Đặt biến môi trường CHIMERA_STRICT_SHIELD=0 nếu muốn tạm tắt bắt buộc chữ ký để test
+define('CHIMERA_STRICT_SHIELD', getenv('CHIMERA_STRICT_SHIELD') !== '0');
+// Chỉ cho phép key=DEBUG_BYPASS khi đặt CHIMERA_ALLOW_DEBUG_BYPASS=1
+define('CHIMERA_ALLOW_DEBUG_BYPASS', getenv('CHIMERA_ALLOW_DEBUG_BYPASS') === '1');
+define('CHIMERA_CRACK_NOTICE', 'Crack cái con cặc');
