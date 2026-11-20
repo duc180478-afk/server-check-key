@@ -109,4 +109,46 @@ class ChimeraServerShield {
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }
+
+    public static function getFlag(string $name, bool $default): bool {
+        self::initTables();
+        try {
+            $pdo = Database::getConnection();
+            $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_shield_settings (k VARCHAR(64) PRIMARY KEY, v VARCHAR(16) NOT NULL)");
+            $st = $pdo->prepare("SELECT v FROM chimera_shield_settings WHERE k = ?");
+            $st->execute([$name]);
+            $val = $st->fetchColumn();
+            if ($val !== false) return $val === '1';
+        } catch (Throwable $e) {}
+        return $default;
+    }
+
+    public static function setFlag(string $name, bool $val): void {
+        self::initTables();
+        try {
+            $pdo = Database::getConnection();
+            $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_shield_settings (k VARCHAR(64) PRIMARY KEY, v VARCHAR(16) NOT NULL)");
+            $pdo->prepare("DELETE FROM chimera_shield_settings WHERE k = ?")->execute([$name]);
+            $pdo->prepare("INSERT INTO chimera_shield_settings (k, v) VALUES (?, ?)")->execute([$name, $val ? '1' : '0']);
+        } catch (Throwable $e) {}
+    }
+
+    public static function clearAllBans(): void {
+        self::initTables();
+        try {
+            $pdo = Database::getConnection();
+            $pdo->exec("DELETE FROM chimera_bans");
+        } catch (Throwable $e) {}
+    }
+
+    public static function getStats(): array {
+        self::initTables();
+        $out = ['bans' => 0, 'logs' => 0];
+        try {
+            $pdo = Database::getConnection();
+            $out['bans'] = (int)$pdo->query("SELECT COUNT(*) FROM chimera_bans WHERE expires_at > " . time())->fetchColumn();
+            $out['logs'] = (int)$pdo->query("SELECT COUNT(*) FROM chimera_crack_logs")->fetchColumn();
+        } catch (Throwable $e) {}
+        return $out;
+    }
 }
