@@ -1,163 +1,188 @@
 <?php
-/**
- * api_mods.php (Chimera v16 Hardened)
- * - Khóa hoàn toàn ?raw_chmr=1 khi bật CHIMERA_STRICT_SHIELD.
- * - Bắt buộc chữ ký HMAC-SHA256 C++ + Timestamp <= 120s + Nonce dùng 1 lần (chống Replay).
- * - Chặn key=DEBUG_BYPASS trên production, chặn IP/HWID bị ban và trả về "Crack cái con cặc".
- */
+// api_check.php — Phase 0+1: HMAC BẮT BUỘC, không còn đường vòng không-sig
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/functions.php';
-require_once __DIR__ . '/chimera_compiler.php';
-require_once __DIR__ . '/shield_guard.php';
+require_once 'config.php';
+require_once 'functions.php';
 
-header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, X-Chimera-Shield');
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Content-Type: application/json');
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    exit;
-}
-
+// ★ APP_SECRET — PHẢI GIỐNG Secrets.kt → APP_SECRET_OBF (salt 0x77)
+// CẢNH BÁO: secret tĩnh + XOR đơn byte chỉ chặn script-kiddie.
+// Người dump APK 1 lần lấy được secret → forge HMAC. Phase 4 (Keystore) mới thật sự bịt.
 $APP_SECRET = 'FAKEPING_BY_MDUCDZ';
+
+// is_ff_family() defined in functions.php (includes modskin)
+
 $ip = getClientIp();
-
-function loadLatestChimeraEnvelopeBin(): string {
-    $writableChmrFile = __DIR__ . '/data/data.chmr';
-    $seedChmrFile     = __DIR__ . '/data.chmr';
-
-    try {
-        $pdo = Database::getConnection();
-        $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_mod_vault (id INTEGER PRIMARY KEY CHECK (id = 1), chmr_b64 TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-        $rowB64 = $pdo->query("SELECT chmr_b64 FROM chimera_mod_vault WHERE id = 1")->fetchColumn();
-        if (is_string($rowB64) && strlen($rowB64) > 32) {
-            $decBin = base64_decode($rowB64, true);
-            if ($decBin !== false && strlen($decBin) > 24) {
-                return $decBin;
-            }
-        }
-    } catch (Throwable $e) {}
-
-    if (file_exists($writableChmrFile)) {
-        $bin = @file_get_contents($writableChmrFile);
-        if (is_string($bin) && strlen($bin) > 24) {
-            return $bin;
-        }
-    }
-
-    if (file_exists($seedChmrFile)) {
-        $bin = @file_get_contents($seedChmrFile);
-        if (is_string($bin) && strlen($bin) > 24) {
-            if (!is_dir(__DIR__ . '/data')) {
-                @mkdir(__DIR__ . '/data', 0755, true);
-            }
-            @file_put_contents($writableChmrFile, $bin, LOCK_EX);
-            try {
-                $pdo = Database::getConnection();
-                $pdo->exec("DELETE FROM chimera_mod_vault WHERE id = 1");
-                $stmt = $pdo->prepare("INSERT INTO chimera_mod_vault (id, chmr_b64, updated_at) VALUES (1, ?, ?)");
-                $stmt->execute([base64_encode($bin), time()]);
-            } catch (Throwable $e) {}
-            return $bin;
-        }
-    }
-
-    return ChimeraServerCompiler::compileStringToEnvelope("[]");
-}
-
-// Khóa cứng ?raw_chmr=1 để kẻ crack không thể curl trực tiếp file data.chmr
-if (isset($_GET['raw_chmr']) && $_GET['raw_chmr'] === '1') {
-    if (defined('CHIMERA_STRICT_SHIELD') && CHIMERA_STRICT_SHIELD) {
-        ChimeraServerShield::rejectCracker('raw_chmr_blocked', $ip, '', '', true);
-    }
-    $bin = loadLatestChimeraEnvelopeBin();
-    header('Content-Type: application/octet-stream');
-    header('Content-Length: ' . strlen($bin));
-    echo $bin;
-    exit;
-}
-
-if (!checkRateLimit('api_mods_' . $ip, 60, 60)) {
+if (ChimeraServerShield::isBanned($ip, '')) { ChimeraServerShield::rejectCracker('banned_cracker', $ip, '', '', false); }
+if (!checkRateLimit('api_' . $ip, 30, 60)) {
     http_response_code(429);
-    echo json_encode(['error' => 'rate_limited']);
+    echo json_encode(['status' => 'error', 'message' => 'Quá nhiều yêu cầu. Vui lòng thử lại sau.']);
     exit;
 }
 
-$rawBody = file_get_contents('php://input');
-$jsonIn = json_decode($rawBody, true);
-$formIn = [];
-if (!is_array($jsonIn) && is_string($rawBody) && $rawBody !== '') {
-    parse_str($rawBody, $formIn);
-}
-if (!is_array($jsonIn)) $jsonIn = [];
-if (!is_array($formIn)) $formIn = [];
-$input = array_merge($_GET, $_POST, $formIn, $jsonIn);
+// FIX: client mới gửi qua POST body (application/x-www-form-urlencoded).
+// Đọc $_GET trước đây khiến mọi field luôn rỗng với client đã ký — đọc $_POST trước, $_GET làm fallback.
+$key        = trim($_POST['key']    ?? $_GET['key']    ?? '');
+$hwid       = trim($_POST['hwid']   ?? $_GET['hwid']   ?? '');
+$app_client = strtolower(trim($_POST['app'] ?? $_GET['app'] ?? ''));
+$ts         = trim($_POST['ts']     ?? $_GET['ts']     ?? '');
+$nonce      = trim($_POST['nonce']  ?? $_GET['nonce']  ?? '');
+$reqSig     = trim($_POST['sig']    ?? $_GET['sig']    ?? '');
+$oldSession = trim($_POST['sid']    ?? $_GET['sid']    ?? '');
+$apkSig     = strtolower(trim($_POST['apk_sig'] ?? $_GET['apk_sig'] ?? ''));
 
-$key    = trim((string)($input['key']   ?? ''));
-$hwid   = trim((string)($input['hwid']  ?? ''));
-$app    = strtolower(trim((string)($input['app'] ?? 'modskin')));
-$ts     = (int)($input['ts']   ?? 0);
-$nonce  = trim((string)($input['nonce'] ?? ''));
-$sig    = strtolower(trim((string)($input['sig'] ?? '')));
-$shield = (int)($input['shield'] ?? ($_SERVER['HTTP_X_CHIMERA_SHIELD'] ?? 0));
+// ★ Cert APK allowlist (SHA-256 hex, không dấu ':')
+// AndroidIDE: keytool -list -v -keystore release-key.jks -alias fakeping_release
+// Rỗng = chưa bật (dev). Thêm hash release (và debug nếu cần) rồi deploy.
+$ALLOWED_APK_SIGS = [
+    '81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8',
+'81209eeaa0b20b9cb614231ab50cd095e3c1ba5e85c04fd160aff6c9008c24f8',
+'a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc', // debug app-debug.apk
+    // 'release_sha256_here',
+];
 
-if (ChimeraServerShield::isBanned($ip, $hwid)) {
-    ChimeraServerShield::rejectCracker('banned_cracker', $ip, $hwid, $key, false);
-}
-
-if ($shield !== 0) {
-    ChimeraServerShield::rejectCracker('client_shield_tripped', $ip, $hwid, $key, true);
-}
-
-if ($app !== 'modskin') {
-    ChimeraServerShield::rejectCracker('invalid_app', $ip, $hwid, $key, false);
-}
-
-$strict = defined('CHIMERA_STRICT_SHIELD') ? CHIMERA_STRICT_SHIELD : true;
-$allowDebug = defined('CHIMERA_ALLOW_DEBUG_BYPASS') ? CHIMERA_ALLOW_DEBUG_BYPASS : false;
-
-// Bắt buộc chữ ký HMAC + Nonce 1 lần khi bật Strict Shield
-if ($strict && ($ts === 0 || $nonce === '' || $sig === '')) {
-    ChimeraServerShield::rejectCracker('missing_signature', $ip, $hwid, $key, false);
+// ─── Phase 1: HMAC BẮT BUỘC ───────────────────────────────────────
+// Không còn fallback "không có sig thì vẫn cho qua".
+// Client cũ chưa ký sẽ fail → phải đẩy bản client mới trước hoặc đồng thời.
+if ($reqSig === '' || $ts === '' || $nonce === '') {
+    echo json_encode([
+        'status'  => 'error',
+        'message' => 'Request thiếu chữ ký.',
+        'p' => null,
+        's' => null
+    ]);
+    exit;
 }
 
-if ($ts !== 0 && $nonce !== '' && $sig !== '') {
-    if (!ChimeraServerShield::verifyAndConsumeNonce($nonce, $ts)) {
-        ChimeraServerShield::rejectCracker('replay_or_expired_nonce', $ip, $hwid, $key, false);
-    }
-    $canon = "mods|{$key}|{$hwid}|{$ts}|{$nonce}";
-    $expected = hash_hmac('sha256', $canon, $APP_SECRET);
-    if (!hash_equals($expected, $sig)) {
-        ChimeraServerShield::rejectCracker('invalid_hmac_signature', $ip, $hwid, $key, false);
-    }
-    if ($key === 'DEBUG_BYPASS' && !$allowDebug) {
-        ChimeraServerShield::rejectCracker('debug_bypass_rejected', $ip, $hwid, $key, true);
-    }
-    if ($key !== '' && $key !== 'DEBUG_BYPASS') {
-        $kd = getKeyByKey($key);
-        if (!$kd || strtolower($kd['status'] ?? '') !== 'active') {
-            http_response_code(403);
-            echo json_encode(['error' => 'key_invalid']);
-            exit;
-        }
-        if (!empty($kd['expires_at']) && strtotime($kd['expires_at']) < time()) {
-            http_response_code(403);
-            echo json_encode(['error' => 'key_expired']);
-            exit;
-        }
+$tsInt = (int)$ts;
+if (abs(time() - $tsInt) > 120) {
+    echo json_encode(['status' => 'error', 'message' => 'Request hết hạn.', 'p' => null, 's' => null]);
+    exit;
+}
+if (!consumeNonce($nonce)) {
+    echo json_encode(['status' => 'error', 'message' => 'Replay bị chặn.', 'p' => null, 's' => null]);
+    exit;
+}
+$canon  = $key . '|' . $hwid . '|' . $app_client . '|' . $ts . '|' . $nonce;
+$expect = hash_hmac('sha256', $canon, $APP_SECRET);
+if (!hash_equals($expect, strtolower($reqSig))) {
+    echo json_encode(['status' => 'error', 'message' => 'Chữ ký không hợp lệ.', 'p' => null, 's' => null]);
+    exit;
+}
+
+// ─── APK signature (chống re-sign trên máy sạch) ─────────────────
+if (count($ALLOWED_APK_SIGS) > 0) {
+    if ($apkSig === '' || !in_array($apkSig, array_map('strtolower', $ALLOWED_APK_SIGS), true)) {
+        echo json_encode([
+            'status'  => 'error',
+            'message' => 'APK không hợp lệ.',
+            'p' => null,
+            's' => null
+        ]);
+        exit;
     }
 }
 
-$chimeraEnvelopeBin = loadLatestChimeraEnvelopeBin();
-$chmrB64 = base64_encode($chimeraEnvelopeBin);
-$t = time();
-$s = hash_hmac('sha256', $chmrB64 . '|chimera_v1|' . $t, $APP_SECRET);
+if (empty($key)) {
+    echo json_encode([
+        'status'  => 'error',
+        'message' => 'Thiếu Key!',
+        'p' => null,
+        's' => null
+    ]);
+    exit;
+}
 
-echo json_encode([
-    'mode' => 'chimera_v1',
-    'chmr' => $chmrB64,
-    't'    => $t,
-    's'    => $s,
-], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$result = validateKey($key, $hwid, ['old_session' => $oldSession]);
+
+$kd = getKeyByKey($key);
+@date_default_timezone_set('Asia/Ho_Chi_Minh');
+if (is_array($result) && $kd) {
+    $exp = $kd['expires_at'] ?? null;
+    $result['expires_at'] = $exp;
+    $result['expires_at_vn'] = $exp ? date('d/m/Y H:i', strtotime($exp)) : 'Vĩnh viễn';
+}
+$result['app'] = $kd ? getAppLabel($kd['app'] ?? '') : 'Unknown';
+
+// APP FILTER
+$app_from_db = strtolower(trim($kd['app'] ?? ''));
+$is_key_valid = false;
+if (is_array($result) && isset($result['status']) && strtolower($result['status']) === 'success') {
+    $is_key_valid = true;
+}
+if (isset($result['valid']) && $result['valid'] === true) {
+    $is_key_valid = true;
+}
+if ($is_key_valid && $kd && $app_from_db && $app_client) {
+    $db_ff = is_ff_family($app_from_db);
+    $cli_ff = is_ff_family($app_client);
+    // FakePing <-> LocMod: same product, keys interchangeable.
+    // AOV (proxy) and anything else: strict match only.
+    if (!($db_ff && $cli_ff) && $app_from_db !== $app_client) {
+        $result = [
+            'status'  => 'error',
+            'message' => 'Key này chỉ dùng cho app ' . getAppLabel($app_from_db),
+            'valid'   => false
+        ];
+        $is_key_valid = false;
+    }
+}
+
+// HMAC response payload
+$ok = 0;
+if (is_array($result)) {
+    if (isset($result['status']) && strtolower($result['status']) === 'success') $ok = 1;
+    if (isset($result['valid'])  && $result['valid'] === true) $ok = 1;
+    if (isset($result['ok'])     && (int)$result['ok'] === 1) $ok = 1;
+} elseif (is_bool($result)) {
+    $ok = $result ? 1 : 0;
+}
+
+$sid = $ok ? ($result['session'] ?? '') : '';
+$gk  = '';
+if ($ok && $sid !== '') {
+    $gk = substr(hash_hmac('sha256', 'gk|' . $sid, $APP_SECRET), 0, 32);
+}
+
+// Decode profile for FF family only (FakePing/LocMod). AOV (proxy) gets none.
+$ok_for_profile = false;
+if (is_array($result)) {
+    if (isset($result['status']) && strtolower($result['status']) === 'success') $ok_for_profile = true;
+    if (isset($result['valid']) && $result['valid'] === true) $ok_for_profile = true;
+}
+if ($ok_for_profile && is_ff_family($app_client)) {
+    $vu = time() + 3600;
+    if (!empty($kd['expires_at'])) {
+        $te = strtotime($kd['expires_at']);
+        if ($te && $te > time()) $vu = $te;
+    }
+    // Cap single response window at 24h; heartbeat re-arms.
+    if ($vu > time() + 86400) $vu = time() + 86400;
+    $result['profile'] = [
+        'valid_until' => $vu,
+        'product'     => 'ff',
+        'chain'       => [
+            'max_len'           => 1400,
+            'max_records'       => 64,
+            'min_record_bytes'  => 8,
+            'min_record_x'      => 10000,
+            'max_entity_id'     => 64,
+        ],
+    ];
+}
+
+$payloadArr = [
+    'ok'  => $ok,
+    'exp' => time() + 300,
+    't'   => substr($key, 0, 4),
+    'sid' => $sid,
+    'gk'  => $gk,
+];
+$payload = json_encode($payloadArr, JSON_UNESCAPED_SLASHES);
+$sig     = hash_hmac('sha256', $payload, $APP_SECRET);
+
+$result['p'] = $payload;
+$result['s'] = $sig;
+
+echo json_encode($result);
