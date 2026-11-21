@@ -26,6 +26,11 @@ class ChimeraServerShield {
                 reason TEXT NOT NULL,
                 expires_at INTEGER NOT NULL
             )");
+            $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_delayed_bans (
+                target TEXT PRIMARY KEY,
+                reason TEXT NOT NULL,
+                ban_at INTEGER NOT NULL
+            )");
         } catch (Throwable $e) {
             // Fallback cho PostgreSQL SERIAL neu AUTOINCREMENT khong ho tro
             try {
@@ -33,6 +38,7 @@ class ChimeraServerShield {
                 $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_used_nonces (nonce VARCHAR(128) PRIMARY KEY, created_at BIGINT NOT NULL)");
                 $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_crack_logs (id SERIAL PRIMARY KEY, ip VARCHAR(64) NOT NULL, hwid VARCHAR(128) DEFAULT '', key_val VARCHAR(128) DEFAULT '', reason VARCHAR(128) NOT NULL, created_at BIGINT NOT NULL)");
                 $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_bans (target VARCHAR(128) PRIMARY KEY, reason VARCHAR(128) NOT NULL, expires_at BIGINT NOT NULL)");
+                $pdo->exec("CREATE TABLE IF NOT EXISTS chimera_delayed_bans (target VARCHAR(128) PRIMARY KEY, reason VARCHAR(128) NOT NULL, ban_at BIGINT NOT NULL)");
             } catch (Throwable $e2) {}
         }
     }
@@ -42,6 +48,19 @@ class ChimeraServerShield {
         try {
             $pdo = Database::getConnection();
             $now = time();
+            // Promote due delayed bans into active 24h bans
+            $due = $pdo->prepare("SELECT target, reason FROM chimera_delayed_bans WHERE (target = ? OR target = ?) AND ban_at <= ?");
+            $due->execute(['ip:' . $ip, $hwid !== '' ? 'hwid:' . $hwid : 'ip:' . $ip, $now]);
+            $dueRows = $due->fetchAll(PDO::FETCH_ASSOC);
+            if (!empty($dueRows)) {
+                $exp = $now + 86400;
+                foreach ($dueRows as $dr) {
+                    $pdo->prepare("DELETE FROM chimera_bans WHERE target = ?")->execute([$dr['target']]);
+                    $pdo->prepare("INSERT INTO chimera_bans (target, reason, expires_at) VALUES (?, ?, ?)")->execute([$dr['target'], $dr['reason'], $exp]);
+                    $pdo->prepare("DELETE FROM chimera_delayed_bans WHERE target = ?")->execute([$dr['target']]);
+                }
+                return true;
+            }
             $stmt = $pdo->prepare("SELECT expires_at FROM chimera_bans WHERE target = ? AND expires_at > ?");
             $stmt->execute(['ip:' . $ip, $now]);
             if ($stmt->fetchColumn()) return true;
@@ -151,4 +170,26 @@ class ChimeraServerShield {
         } catch (Throwable $e) {}
         return $out;
     }
+
+    public static function scheduleDelayedBan(string $ip, string $hwid = '', string $key = '', string $reason = 'frida_silent_trap', int $delaySeconds = 180): void {
+        self::initTables();
+        $now = time();
+        $banAt = $now + max(30, $delaySeconds);
+        try {
+            $pdo = Database::getConnection();
+            $pdo->prepare("INSERT INTO chimera_crack_logs (ip, hwid, key_val, reason, created_at) VALUES (?, ?, ?, ?, ?)")
+                ->execute([$ip, $hwid, $key, $reason, $now]);
+            $targets = ['ip:' . $ip];
+            if ($hwid !== '') $targets[] = 'hwid:' . $hwid;
+            foreach ($targets as $t) {
+                $st = $pdo->prepare("SELECT ban_at FROM chimera_delayed_bans WHERE target = ?");
+                $st->execute([$t]);
+                if (!$st->fetchColumn()) {
+                    $pdo->prepare("INSERT INTO chimera_delayed_bans (target, reason, ban_at) VALUES (?, ?, ?)")
+                        ->execute([$t, $reason, $banAt]);
+                }
+            }
+        } catch (Throwable $e) {}
+    }
+
 }
