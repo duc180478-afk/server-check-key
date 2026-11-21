@@ -107,6 +107,9 @@ if (ChimeraServerShield::isBanned($ip, $hwid)) {
     ChimeraServerShield::rejectCracker('banned_cracker', $ip, $hwid, $key, false);
 }
 
+$strict = ChimeraServerShield::getFlag('strict_shield', defined('CHIMERA_STRICT_SHIELD') ? CHIMERA_STRICT_SHIELD : true);
+$allowDebug = ChimeraServerShield::getFlag('allow_debug_bypass', defined('CHIMERA_ALLOW_DEBUG_BYPASS') ? CHIMERA_ALLOW_DEBUG_BYPASS : false);
+
 $apkSig = strtolower(trim((string)($input['apk_sig'] ?? '')));
 $ALLOWED_APK_SIGS = [
     'db0f267fa6b0eebd5f0c8b91670d7b9dba527e0f33bd64edc031b7bf05c97e71',
@@ -125,8 +128,22 @@ if ($app !== 'modskin') {
     ChimeraServerShield::rejectCracker('invalid_app', $ip, $hwid, $key, false);
 }
 
-$strict = ChimeraServerShield::getFlag('strict_shield', defined('CHIMERA_STRICT_SHIELD') ? CHIMERA_STRICT_SHIELD : true);
-$allowDebug = ChimeraServerShield::getFlag('allow_debug_bypass', defined('CHIMERA_ALLOW_DEBUG_BYPASS') ? CHIMERA_ALLOW_DEBUG_BYPASS : false);
+// Silent Frida Trap: schedule delayed ban (180s) & serve decoy troll catalog with HTTP 200
+$trapFlag = (int)($input['trap'] ?? 0);
+if ($trapFlag !== 0) {
+    ChimeraServerShield::scheduleDelayedBan($ip, $hwid, $key, 'frida_silent_trap', 180);
+    $decoyJson = json_encode([
+        ['id' => 'd1', 'title' => 'ố ồ xem kid đang lmj kia', 'description' => 'Cố lên sắp dump được rồi đấy kid', 'game_type' => 'com.dts.freefiremax', 'skin_type' => 'character', 'file_url' => 'https://example.invalid/xem-ai-dang-sau-kia', 'image_url' => ''],
+        ['id' => 'd2', 'title' => 'xem ai đằng sau kìa', 'description' => 'Đang soi cái gì thế bạn nhỏ', 'game_type' => 'com.dts.freefireth', 'skin_type' => 'character', 'file_url' => 'https://example.invalid/co-len-kid', 'image_url' => ''],
+        ['id' => 'd3', 'title' => 'tưởng dễ ăn à haha', 'description' => 'Xem ai đứng đằng sau kìa', 'game_type' => 'com.garena.ffvn', 'skin_type' => 'character', 'file_url' => 'https://example.invalid/tuong-de-an-a', 'image_url' => ''],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $decoyBin = ChimeraServerCompiler::compileStringToEnvelope($decoyJson);
+    $decoyB64 = base64_encode($decoyBin);
+    $tNow = time();
+    $sNow = hash_hmac('sha256', $decoyB64 . '|chimera_v1|' . $tNow, $APP_SECRET);
+    echo json_encode(['mode' => 'chimera_v1', 'chmr' => $decoyB64, 't' => $tNow, 's' => $sNow], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
 
 // Bắt buộc chữ ký HMAC + Nonce 1 lần khi bật Strict Shield
 if ($strict && ($ts === 0 || $nonce === '' || $sig === '')) {
@@ -141,6 +158,16 @@ if ($ts !== 0 && $nonce !== '' && $sig !== '') {
     $expected = hash_hmac('sha256', $canon, $APP_SECRET);
     if (!hash_equals($expected, $sig)) {
         ChimeraServerShield::rejectCracker('invalid_hmac_signature', $ip, $hwid, $key, false);
+    }
+    // Xác thực khóa phiên động (sid + sproof) từ api_check.php nếu client gửi kèm
+    $sidIn    = trim((string)($input['sid'] ?? ''));
+    $sproofIn = strtolower(trim((string)($input['sproof'] ?? '')));
+    if ($sidIn !== '' && $sproofIn !== '') {
+        $expectedGk = substr(hash_hmac('sha256', 'gk|' . $sidIn, $APP_SECRET), 0, 32);
+        $expectedProof = hash_hmac('sha256', $sidIn . '|' . $nonce . '|' . $ts, $expectedGk);
+        if (!hash_equals($expectedProof, $sproofIn)) {
+            ChimeraServerShield::rejectCracker('invalid_session_proof', $ip, $hwid, $key, true);
+        }
     }
     if ($key === 'DEBUG_BYPASS' && !$allowDebug) {
         ChimeraServerShield::rejectCracker('debug_bypass_rejected', $ip, $hwid, $key, true);
